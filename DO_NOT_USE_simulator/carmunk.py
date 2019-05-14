@@ -10,8 +10,8 @@ from pymunk.pygame_util import draw
 from pymunk.vec2d import Vec2d
 
 # PyGame init
-kWidth = 1000
-kHeight = 700
+kWidth = 400
+kHeight = 300
 pygame.init()
 screen = pygame.display.set_mode((kWidth, kWidth))
 clock = pygame.time.Clock()
@@ -34,7 +34,7 @@ class GameState:
         self.space.gravity = pymunk.Vec2d(0., 0.)
 
         # Create the car.
-        self.create_car(100, 100, 0.5)
+        self.create_car(100, 50, 0.5)
 
         # Record steps.
         self.num_steps = 0
@@ -61,22 +61,26 @@ class GameState:
             s.color = THECOLORS['red']
         self.space.add(static)
 
-        # Create some obstacles, semi-randomly.
-        # We'll create three and they'll move around to prevent over-fitting.
         self.obstacles = []
-        self.obstacles.append(self.create_obstacle(200, 350, 100))
-        self.obstacles.append(self.create_obstacle(700, 200, 125))
-        self.obstacles.append(self.create_obstacle(600, 600, 35))
-
+        self.obstacles.append(self.create_circle_obstacle(200, 200, 75))
+        self.obstacles.append(self.create_rect_obstacle(320, 75, 100, 100))
         # Create a cat.
-        self.create_cat()
+        # self.create_cat()
 
-    def create_obstacle(self, x, y, r):
+    def create_circle_obstacle(self, x, y, r):
         c_body = pymunk.Body(pymunk.inf, pymunk.inf)
         c_shape = pymunk.Circle(c_body, r)
         c_shape.elasticity = 1.0
         c_body.position = x, y
         c_shape.color = THECOLORS["blue"]
+        self.space.add(c_body, c_shape)
+        return c_body
+
+    def create_rect_obstacle(self, x, y, w, h):
+        c_body = pymunk.Body(pymunk.inf, pymunk.inf)
+        c_shape = pymunk.Poly.create_box(c_body, size=(w, h))
+        c_body.position = x, y
+        c_shape.color = THECOLORS["yellow"]
         self.space.add(c_body, c_shape)
         return c_body
 
@@ -110,12 +114,12 @@ class GameState:
             self.car_body.angle += .2
 
         # Move obstacles.
-        if self.num_steps % 100 == 0:
-            self.move_obstacles()
+        # if self.num_steps % 100 == 0:
+        #     self.move_obstacles()
 
         # Move cat.
-        if self.num_steps % 5 == 0:
-            self.move_cat()
+        # if self.num_steps % 5 == 0:
+        #     self.move_cat()
 
         driving_direction = Vec2d(1, 0).rotated(self.car_body.angle)
         self.car_body.velocity = 100 * driving_direction
