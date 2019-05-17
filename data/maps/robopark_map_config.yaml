@@ -1,6 +1,4 @@
-%YAML:1.0
----
 name: robopark
 resolution: 0.02
-width: 300
-height: 212
+width: 6  # meters
+height: 4.24  # meters
