@@ -45,10 +45,8 @@ class SLAM(object):
         # Estimated poses from SDF tracker
         self._est_poses = []
 
-
     def Init(self):
         self._GetScanSensorInfo()
-
 
     def _GetScanSensorInfo(self):
         if len(self._scans) == 0:
@@ -58,7 +56,6 @@ class SLAM(object):
         self._max_angle = self._scans[0][3]
         self._min_range = self._scans[0][4]
         self._max_range = self._scans[0][5]
-
 
     def _ProcessScanToLocalCoords(self, scan):
         print scan.shape
@@ -72,11 +69,11 @@ class SLAM(object):
         ret = np.stack((x, y, z))
         return ret
 
-
     def Run(self):
         scan_data = np.array(self._scans[0][0])
         scan_data = self._ProcessScanToLocalCoords(scan_data)
-        self._grid_map.MapOneScan(scan_data, self._poses[0])
+        # self._grid_map.MapOneScan(scan_data, self._poses[0])
+        self._grid_map.FuseSdf(scan_data, self._poses[0], self._min_angle, self._max_angle)
 
 
 def main(argv):
