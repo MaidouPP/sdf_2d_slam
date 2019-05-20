@@ -58,7 +58,6 @@ class SLAM(object):
         self._max_range = self._scans[0][5]
 
     def _ProcessScanToLocalCoords(self, scan):
-        print scan.shape
         valid_idxs = np.logical_and((scan > self._min_range),
                                     (scan < self._max_range))
         data = scan[valid_idxs]
@@ -71,9 +70,12 @@ class SLAM(object):
 
     def Run(self):
         scan_data = np.array(self._scans[0][0])
-        scan_data = self._ProcessScanToLocalCoords(scan_data)
+        # scan_local_xy = self._ProcessScanToLocalCoords(scan_data)
         # self._grid_map.MapOneScan(scan_data, self._poses[0])
-        self._grid_map.FuseSdf(scan_data, self._poses[0], self._min_angle, self._max_angle)
+        self._grid_map.FuseSdf(
+            scan_data, self._poses[0], self._min_angle, self._max_angle, self._res_angle,
+            self._min_range, self._max_range)
+        self._grid_map.VisualizeSdfMap()
 
 
 def main(argv):
