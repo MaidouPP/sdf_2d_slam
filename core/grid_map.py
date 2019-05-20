@@ -90,13 +90,14 @@ class GridMap(object):
         # (2, N), N: total number of grids, grid point coordinates in robot frame
         grid_local_pts = np.dot(T_c_w[:2, :2], world_pts) + np.tile(
             T_c_w[:2, 2].reshape(2, 1), (1, world_pts.shape[1]))
-        grid_local_dist = np.linalg.norm(grid_local_pts - np.repeat(trans, grid_local_pts.shape[1], axis=1), axis=0)
+        grid_local_dist = np.linalg.norm(
+            grid_local_pts - np.repeat(trans, grid_local_pts.shape[1], axis=1), axis=0)
 
         grid_local_pts_tan = [(grid_local_pts[1, i] / grid_local_pts[0, i]) if grid_local_pts[0, i]
                               != 0 else (math.pi/2 if grid_local_pts[1, i] > 0 else -math.pi/2)
                               for i in range(grid_local_pts.shape[1])]
         # Angle between scan center and the point
-        grid_local_pts_angle=np.arctan(grid_local_pts_tan)
+        grid_local_pts_angle = np.arctan(grid_local_pts_tan)
 
         # Pick the points inside the view frustum
         # This positive grid_local_pts[0] check only works when the scan angle covering less than pi!
@@ -108,13 +109,14 @@ class GridMap(object):
                            *  (scan optical center)
         """
         # For each local grid coordinates in robot frame, compute the scan hit index in camera
-        scan_pts_idxs = ((grid_local_pts_angle - min_angle) / inc_angle).astype(np.int16)
+        scan_pts_idxs = ((grid_local_pts_angle - min_angle) /
+                         inc_angle).astype(np.int16)
         grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
                                                         np.logical_and(grid_local_dist <= max_range,
                                                                        grid_local_dist >= min_range)),
                                          np.logical_and(grid_local_pts_angle >= min_angle,
                                                         grid_local_pts_angle <= max_angle)
-                                    )
+                                         )
         num_scan = np.ceil((max_angle - min_angle) / inc_angle) + 1
 
         # Calculate depth update for valid voxels
@@ -132,7 +134,8 @@ class GridMap(object):
 
     def _UpdateSdfMap(self, idxs, depth_diff):
         new_freq_map = self._freq_map + 1
-        sdf_map = np.divide(np.multiply(self._sdf_map, self._freq_map) + depth_diff, new_freq_map)
+        sdf_map = np.divide(np.multiply(
+            self._sdf_map, self._freq_map) + depth_diff, new_freq_map)
         self._sdf_map[idxs] = sdf_map[idxs]
         self._freq_map[idxs] += 1
 
@@ -140,18 +143,18 @@ class GridMap(object):
         self._VisualizeOccupancyGrid(self._sdf_map)
 
     def _GetSE2FromPose(self, pose):
-        x, y, yaw=pose
+        x, y, yaw = pose
         # Construct transform matrix
-        rot=np.identity(2, dtype=np.float32)
-        rot[0, 0]=np.cos(yaw)
-        rot[0, 1]=-np.sin(yaw)
-        rot[1, 0]=np.sin(yaw)
-        rot[1, 1]=np.cos(yaw)
+        rot = np.identity(2, dtype=np.float32)
+        rot[0, 0] = np.cos(yaw)
+        rot[0, 1] = -np.sin(yaw)
+        rot[1, 0] = np.sin(yaw)
+        rot[1, 1] = np.cos(yaw)
         # Translation vector
-        mat=np.identity(3, dtype=np.float32)
-        mat[:2, :2]=rot
-        mat[2, 0]=x
-        mat[2, 1]=y
+        mat = np.identity(3, dtype=np.float32)
+        mat[:2, :2] = rot
+        mat[2, 0] = x
+        mat[2, 1] = y
         return mat
 
     def GetScanWorldCoords(self, scan, pose):
@@ -160,30 +163,30 @@ class GridMap(object):
           scan - laser point coordinates in meters in robot frame
           pose - (x, y, yaw)
         """
-        x, y, yaw=pose
+        x, y, yaw = pose
 
         # Construct transform matrix
-        rot=np.identity(3, dtype=np.float32)
-        rot[0, 0]=np.cos(yaw)
-        rot[0, 1]=-np.sin(yaw)
-        rot[1, 0]=np.sin(yaw)
-        rot[1, 1]=np.cos(yaw)
+        rot = np.identity(3, dtype=np.float32)
+        rot[0, 0] = np.cos(yaw)
+        rot[0, 1] = -np.sin(yaw)
+        rot[1, 0] = np.sin(yaw)
+        rot[1, 1] = np.cos(yaw)
         # Translation vector
-        trans=np.array([[x, y, 0]])
+        trans = np.array([[x, y, 0]])
 
         # Transform points in robot frame to world frame
-        scan_w=np.dot(rot, scan) + np.tile(trans.transpose(),
+        scan_w = np.dot(rot, scan) + np.tile(trans.transpose(),
                                              (1, scan.shape[1]))
-        scan_w=scan[:2, :]
+        scan_w = scan[:2, :]
         return scan_w
 
     def _FromMeterToCell(self, scan):
         """
         Transform world scan in meter to world scan in cell coordinates.
         """
-        xs=scan[0, :]
-        ys=scan[1, :]
+        xs = scan[0, :]
+        ys = scan[1, :]
         # Convert from meters to cells
-        cell_xs=((xs - self._mini_x) / self._res).astype(np.int16)
-        cell_ys=((ys - self._mini_y) / self._res).astype(np.int16)
+        cell_xs = ((xs - self._mini_x) / self._res).astype(np.int16)
+        cell_ys = ((ys - self._mini_y) / self._res).astype(np.int16)
         return cell_xs, cell_ys

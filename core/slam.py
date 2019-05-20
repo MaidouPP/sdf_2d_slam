@@ -68,6 +68,10 @@ class SLAM(object):
         ret = np.stack((x, y, z))
         return ret
 
+    def Track(self, scan):
+        scan_local_xy = self._ProcessScanToLocalCoords(scan_data)
+
+
     def Run(self):
         scan_data = np.array(self._scans[0][0])
         # scan_local_xy = self._ProcessScanToLocalCoords(scan_data)
@@ -75,7 +79,13 @@ class SLAM(object):
         self._grid_map.FuseSdf(
             scan_data, self._poses[0], self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range)
-        self._grid_map.VisualizeSdfMap()
+        self._est_poses.append([0, 0, 0])
+        # self._grid_map.VisualizeSdfMap()
+        t = 3
+        while (t < len(self._times)):
+            pose = self.Track(scan_data)
+            self._est_poses.append(pose)
+            t += 3
 
 
 def main(argv):
