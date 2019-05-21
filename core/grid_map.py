@@ -3,10 +3,12 @@ import os
 import numpy as np
 import math
 import matplotlib.pyplot as plt
+import utils
 plt.ion()
 
 
 class GridMap(object):
+    kEps = 1e-6
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -20,27 +22,25 @@ class GridMap(object):
             self._height = cfg['height']
             self._res = cfg['resolution']
 
-            # Always assume the center of the map is at world (0m, 0m)
-            # Size of map in cells
-            self._size_x = int(np.ceil(self._width / self._res))
-            self._size_y = int(np.ceil(self._height / self._res))
-            # Grid map corners position in cells
-            self._mini_x = - float(self._width) / 2
-            self._mini_y = - float(self._height) / 2
-            self._maxi_x = float(self._width / 2)
-            self._maxi_y = float(self._height / 2)
-            # Grid's upper left origin world coordinate in meters (row, col)
-            self._grid_ul_coord = np.array(
-                [self._mini_x, self._maxi_y], dtype=np.float32)
-
-        # Construct sdf map
-        self._sdf_map = np.zeros([self._size_y, self._size_x], np.float32)
-        # Construct visit frequency map
-        self._freq_map = np.zeros([self._size_y, self._size_x], np.float32)
+        # Always assume the center of the map is at world (0m, 0m)
+        # Size of map in cells
+        self._size_x = int(np.ceil(self._width / self._res))
+        self._size_y = int(np.ceil(self._height / self._res))
+        # Grid map corners position in cells
+        self._mini_x = - float(self._width) / 2
+        self._mini_y = - float(self._height) / 2
+        self._maxi_x = float(self._width / 2)
+        self._maxi_y = float(self._height / 2)
+        # Grid's upper left origin world coordinate in meters (row, col)
+        self._grid_ul_coord = np.array(
+            [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
         self._truncation = 5 * self._res
-
+        # Construct sdf map
+        self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
+        # Construct visit frequency map
+        self._freq_map = np.zeros([self._size_y, self._size_x])
         # For test
         self._occupancy_map = np.zeros(
             [self._size_y, self._size_x], np.float32)
@@ -52,20 +52,34 @@ class GridMap(object):
         """
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        plt.imshow(grid, origin='lower')
+        plt.imshow(grid)
+        plt.colorbar()
         plt.show(block=True)
 
+    @property
+    def sdf_map(self):
+        return self._sdf_map
+
+    def GetSdfValue(self, r, c):
+        return self._sdf_map[r, c]
+
     def MapOneScan(self, scan, pose):
-        scan_w = self.GetScanWorldCoords(scan, pose)
+        """
+        input:
+          scan - laser point coordinates in meters in robot frame
+          pose - (x, y, yaw)
+        """
+        print "scan shape: ", scan.shape
+        scan_w = utils.GetScanWorldCoords(scan, pose)
 
         # Get the cell coordinates of scan hit points
-        scan_w_xs, scan_w_ys = self._FromMeterToCell(scan_w)
+        scan_w_xs, scan_w_ys = self.FromMeterToCell(scan_w)
 
         self._occupancy_map[scan_w_ys, scan_w_xs] = 1
 
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        plt.imshow(self._occupancy_map, origin='lower')
+        plt.imshow(self._occupancy_map)
         plt.show(block=True)
 
     def FuseSdf(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
@@ -84,7 +98,7 @@ class GridMap(object):
             float) * self._res + self._grid_ul_coord.reshape(-1, 1)
 
         # World coordinates to camera coordinates transform
-        T_w_c = self._GetSE2FromPose(pose)
+        T_w_c = utils.GetSE2FromPose(pose)
         T_c_w = np.linalg.inv(T_w_c)
 
         # (2, N), N: total number of grids, grid point coordinates in robot frame
@@ -142,51 +156,41 @@ class GridMap(object):
     def VisualizeSdfMap(self):
         self._VisualizeOccupancyGrid(self._sdf_map)
 
-    def _GetSE2FromPose(self, pose):
-        x, y, yaw = pose
-        # Construct transform matrix
-        rot = np.identity(2, dtype=np.float32)
-        rot[0, 0] = np.cos(yaw)
-        rot[0, 1] = -np.sin(yaw)
-        rot[1, 0] = np.sin(yaw)
-        rot[1, 1] = np.cos(yaw)
-        # Translation vector
-        mat = np.identity(3, dtype=np.float32)
-        mat[:2, :2] = rot
-        mat[2, 0] = x
-        mat[2, 1] = y
-        return mat
-
-    def GetScanWorldCoords(self, scan, pose):
+    def FromMeterToCell(self, scan):
         """
-        input:
-          scan - laser point coordinates in meters in robot frame
-          pose - (x, y, yaw)
-        """
-        x, y, yaw = pose
-
-        # Construct transform matrix
-        rot = np.identity(3, dtype=np.float32)
-        rot[0, 0] = np.cos(yaw)
-        rot[0, 1] = -np.sin(yaw)
-        rot[1, 0] = np.sin(yaw)
-        rot[1, 1] = np.cos(yaw)
-        # Translation vector
-        trans = np.array([[x, y, 0]])
-
-        # Transform points in robot frame to world frame
-        scan_w = np.dot(rot, scan) + np.tile(trans.transpose(),
-                                             (1, scan.shape[1]))
-        scan_w = scan[:2, :]
-        return scan_w
-
-    def _FromMeterToCell(self, scan):
-        """
-        Transform world scan in meter to world scan in cell coordinates.
+        Transform **world** scan in meter to world scan in cell coordinates.
         """
         xs = scan[0, :]
         ys = scan[1, :]
         # Convert from meters to cells
-        cell_xs = ((xs - self._mini_x) / self._res).astype(np.int16)
-        cell_ys = ((ys - self._mini_y) / self._res).astype(np.int16)
-        return cell_xs, cell_ys
+        cell_cs = ((xs - self._mini_x) / self._res).astype(np.int16)
+        cell_rs = self._size_y - \
+            ((ys - self._mini_y) / self._res).astype(np.int16) - 1
+        return cell_cs, cell_rs
+
+    def _IsValid(self, r, c):
+        # Assume (r, c) is valid coordinate
+        if self._sdf_map[r][c] > self._truncation - self.kEps or \
+           self._sdf_map[r][c] < -self._truncation + self.kEps:
+            return False
+        else:
+            return True
+
+    def HasValidGradient(self, r, c):
+        # Check boundary
+        if r < 1 or c < 1 or r >= self._size_y - 1 or c >= self._size_x - 1:
+            return False
+
+        if self._IsValid(r-1, c) and self._IsValid(r+1, c) and \
+           self._IsValid(r, c-1) and self._IsValid(r, c+1):
+            return True
+        else:
+            return False
+
+    def CalcSdfGradient(self, r, c):
+        # User must already check the validity of (r,c)
+        g_x = 0.5 * (self._sdf_map[r, c+1] - self._sdf_map[r, c-1])
+        g_y = 0.5 * (self._sdf_map[r+1, c] - self._sdf_map[r-1, c])
+        g = np.array([g_x, g_y], dtype=np.float32)
+        g = np.reshape(g, [1, 2])
+        return g
