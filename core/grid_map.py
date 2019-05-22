@@ -83,22 +83,25 @@ class GridMap(object):
         plt.show(block=True)
 
     def FuseSdf(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
-        x, y, yaw = pose
-        trans = np.array([x, y], dtype=np.float32).reshape((2, -1))
-
+        """
+        input:
+        - pose: SE2
+        """
+        trans = pose[:2, 2].reshape((2, 1))
         # Get voxel grid coordinates in a row-col scheme
         N = self._size_x * self._size_y
         ys, xs = np.meshgrid(range(self._size_y),
                              range(self._size_x), indexing='ij')
         grid_coords = np.concatenate(
             (xs.reshape(1, -1), -ys.reshape(1, -1)), axis=0).astype(int)
+        print grid_coords
 
         # Grid cells coordinates to world coordinates in meters
         world_pts = grid_coords.astype(
             float) * self._res + self._grid_ul_coord.reshape(-1, 1)
 
         # World coordinates to camera coordinates transform
-        T_w_c = utils.GetSE2FromPose(pose)
+        T_w_c = pose
         T_c_w = np.linalg.inv(T_w_c)
 
         # (2, N), N: total number of grids, grid point coordinates in robot frame
@@ -188,9 +191,14 @@ class GridMap(object):
             return False
 
     def CalcSdfGradient(self, r, c):
-        # User must already check the validity of (r,c)
-        g_x = 0.5 * (self._sdf_map[r, c+1] - self._sdf_map[r, c-1])
-        g_y = 0.5 * (self._sdf_map[r+1, c] - self._sdf_map[r-1, c])
+        # User must already check the validity of (r, c)
+        g_x = 0.5 * (self._sdf_map[r, c+1] - self._sdf_map[r, c-1]) / self._res
+        g_y = 0.5 * (self._sdf_map[r-1, c] - self._sdf_map[r+1, c]) / self._res
         g = np.array([g_x, g_y], dtype=np.float32)
         g = np.reshape(g, [1, 2])
         return g
+
+    def VisualizePoints(self, rows, cols):
+        canvas = np.zeros([self._size_y, self._size_x])
+        canvas[rows, cols] = 1
+        self._VisualizeOccupancyGrid(canvas)

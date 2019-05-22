@@ -7,6 +7,7 @@ except ImportError("No cPickle found. Will import pickle instead."):
 import gflags
 import logging
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 import sys
 import utils
@@ -23,8 +24,11 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 
 class SLAM(object):
+    # Some constants
     kDeltaTime = 3
     kOptMaxIters = 20
+    kEpsOfYaw = 1e-3
+    kEpsOfTrans = 1e-3
 
     def __init__(self, data_path, map_config_path):
         if not os.path.exists(data_path):
@@ -49,7 +53,7 @@ class SLAM(object):
         # Estimated poses (se2) from SDF tracker
         self._est_poses = []
         # Last tracked pose
-        self._last_pose = [0, 0, 0]
+        self._last_pose = np.identity(3, dtype=np.float32)
 
         # Construct an optimizer
         self._optimizer = SdfOptimizer()
@@ -78,27 +82,26 @@ class SLAM(object):
         return ret
 
     def Track(self, scan):
-        # scan_local_xy = self._ProcessScanToLocalCoords(scan_data)
-        # last_pose_mat = utils.GetSE2FromPose(self._last_pose)
         # Perturbation xi that we are trying to optimize
         xi = np.array([0, 0, 0], dtype=np.float32)
         it = 0
         # last_pose is a SE2
-        last_pose = utils.GetSE2FromPose(self._last_pose)
+        # utils.GetSE2FromPose(self._last_pose)
+        last_pose = self._last_pose
 
         while it < self.kOptMaxIters:
-            init_scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
-            init_scan_cs, init_scan_rs = self._grid_map.FromMeterToCell(init_scan_w)
+            scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
+            scan_cs, scan_rs = self._grid_map.FromMeterToCell(scan_w)
             # Hessian
             H = np.zeros((3, 3), dtype=np.float32)
             g = np.zeros((3, 1), dtype=np.float32)
 
             # Calculate hessian and g term
-            for i in range(init_scan_cs.shape[0]):
-                c = init_scan_cs[i]
-                r = init_scan_rs[i]
-                x = init_scan_w[0, i]
-                y = init_scan_w[1, i]
+            for i in range(scan_cs.shape[0]):
+                c = scan_cs[i]
+                r = scan_rs[i]
+                x = scan_w[0, i]
+                y = scan_w[1, i]
                 if self._grid_map.HasValidGradient(r, c):
                     # dD / dx
                     J_d_x = self._grid_map.CalcSdfGradient(r, c)
@@ -107,13 +110,21 @@ class SLAM(object):
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
                     J_x_xi[0, 2] = -y
                     J_x_xi[1, 2] = x
-                    # J: (1, 3)
+                    # Jacobian of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
                     H += np.dot(J.transpose(), J)
                     g += J.transpose() * self._grid_map.GetSdfValue(r, c)
 
-            xi = -np.dot(np.linalg.inv(H), g)
+            try:
+                xi = -np.dot(np.linalg.inv(H), g)
+            except np.linalg.LinAlgError as err:
+                print "Hessian matrix not invertible."
+                xi = np.zeros((3, 1), dtype=np.float32)
+
+            # Check if xi is too small so that we can stop optimization
+            if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans:
+                break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
             it += 1
 
@@ -121,23 +132,45 @@ class SLAM(object):
 
     def Run(self):
         scan_data = np.array(self._scans[0][0])
-        # scan_local_xy = self._ProcessScanToLocalCoords(scan_data)
-        # self._grid_map.MapOneScan(scan_local_xy, self._poses[0])
+        pose_mat = utils.GetSE2FromPose(self._poses[0])
         self._grid_map.FuseSdf(
-            scan_data, self._poses[0], self._min_angle, self._max_angle, self._res_angle,
+            scan_data, pose_mat, self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range)
-        self._est_poses.append([0, 0, 0])
-        self._grid_map.VisualizeSdfMap()
+        # self._grid_map.VisualizeSdfMap()
+
         t = self.kDeltaTime
         while (t < len(self._times)):
-            # we want is (x, y, yaw), which is not se2
-            # yet this pose is a SE2
+            print "t: ", t
             scan_data = np.array(self._scans[0][0])
             scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
-            pose = self.Track(scan_local_xys)
-            # self._est_poses.append(pose)
+            curr_pose = self.Track(scan_local_xys)
+            self._est_poses.append(curr_pose)
+            self._last_pose = curr_pose
             t += self.kDeltaTime
+            self._grid_map.FuseSdf(
+                scan_data, curr_pose, self._min_angle, self._max_angle, self._res_angle,
+                self._min_range, self._max_range)
+            print curr_pose
+            print "Ground truth: ", self._poses[t]
+            self._grid_map.VisualizeSdfMap()
+            exit()
+        self.VisualizeOdomAndGt()
 
+    def VisualizeOdomAndGt(self):
+        xs = []
+        ys = []
+        gt_xs = []
+        gt_ys = []
+        for pose in self._est_poses:
+            xs.append(pose[0, 2])
+            ys.append(pose[1, 2])
+        for gt_pose in self._poses:
+            gt_xs.append(gt_pose[0])
+            gt_ys.append(gt_pose[1])
+        plt.plot(xs, ys, c='g')
+        plt.plot(gt_xs, gt_ys, c='r')
+        plt.legend()
+        plt.show(block=True)
 
 def main(argv):
     FLAGS(sys.argv)

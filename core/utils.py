@@ -34,7 +34,7 @@ def LogFromSE2(mat):
 def ExpFromSe2(xi):
     # Need to verify this function!!!!
     assert(xi.shape[0] == 3)
-    mat = np.zeros((3, 3), dtype=np.float32)
+    mat = np.identity(3, dtype=np.float32)
     # Rotation
     yaw = xi[2]
     mat[0, 0] = np.cos(yaw)
@@ -59,7 +59,6 @@ def GetScanWorldCoordsFromSE2(scan, mat):
     trans = mat[:2, 2].reshape(2, 1)
     # Transform points in robot frame to world frame
     scan_w = np.dot(rot, scan) + np.tile(trans, (1, scan.shape[1]))
-    scan_w = scan[:2, :]
     return scan_w
 
 def GetScanWorldCoordsFromPose(scan, pose):

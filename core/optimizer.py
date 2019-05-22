@@ -10,5 +10,5 @@ class SdfOptimizer(object):
 
 
     @staticmethod
-    def _ComputeJacobian(pose):
+    def ComputeJacobian(pose):
         pass
