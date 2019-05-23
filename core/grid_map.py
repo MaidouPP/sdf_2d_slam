@@ -69,7 +69,6 @@ class GridMap(object):
           scan - laser point coordinates in meters in robot frame
           pose - (x, y, yaw)
         """
-        print "scan shape: ", scan.shape
         scan_w = utils.GetScanWorldCoords(scan, pose)
 
         # Get the cell coordinates of scan hit points
@@ -92,17 +91,17 @@ class GridMap(object):
         N = self._size_x * self._size_y
         ys, xs = np.meshgrid(range(self._size_y),
                              range(self._size_x), indexing='ij')
+        # in xy fashion
         grid_coords = np.concatenate(
             (xs.reshape(1, -1), -ys.reshape(1, -1)), axis=0).astype(int)
         print grid_coords
 
-        # Grid cells coordinates to world coordinates in meters
+        # Grid cells coordinates to world coordinates in meters (in xy fashion)
         world_pts = grid_coords.astype(
-            float) * self._res + self._grid_ul_coord.reshape(-1, 1)
+            float) * self._res + self._grid_ul_coord.reshape(-1, 1) + np.array([self._res, self._res]).reshape(-1, 1)
 
         # World coordinates to camera coordinates transform
-        T_w_c = pose
-        T_c_w = np.linalg.inv(T_w_c)
+        T_c_w = np.linalg.inv(pose)
 
         # (2, N), N: total number of grids, grid point coordinates in robot frame
         grid_local_pts = np.dot(T_c_w[:2, :2], world_pts) + np.tile(
@@ -126,7 +125,7 @@ class GridMap(object):
                            *  (scan optical center)
         """
         # For each local grid coordinates in robot frame, compute the scan hit index in camera
-        scan_pts_idxs = ((grid_local_pts_angle - min_angle) /
+        scan_pts_idxs = ((grid_local_pts_angle - min_angle + inc_angle / 2) /
                          inc_angle).astype(np.int16)
         grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
                                                         np.logical_and(grid_local_dist <= max_range,
@@ -148,6 +147,74 @@ class GridMap(object):
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 
         self._UpdateSdfMap(valid_idxs, depth_diff)
+
+    def FuseSdfRayTracing(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
+        """
+        input:
+        - pose: SE2
+        """
+        trans = pose[:2, 2].reshape((2, 1))
+        # Get voxel grid coordinates in a row-col scheme
+        N = self._size_x * self._size_y
+        ys, xs = np.meshgrid(range(self._size_y),
+                             range(self._size_x), indexing='ij')
+        # in xy fashion
+        grid_coords = np.concatenate(
+            (xs.reshape(1, -1), -ys.reshape(1, -1)), axis=0).astype(int)
+        print grid_coords
+
+        # Grid cells coordinates to world coordinates in meters (in xy fashion)
+        world_pts = grid_coords.astype(
+            float) * self._res + self._grid_ul_coord.reshape(-1, 1) + np.array([self._res, self._res]).reshape(-1, 1)
+
+        # World coordinates to camera coordinates transform
+        T_c_w = np.linalg.inv(pose)
+
+        # (2, N), N: total number of grids, grid point coordinates in robot frame
+        grid_local_pts = np.dot(T_c_w[:2, :2], world_pts) + np.tile(
+            T_c_w[:2, 2].reshape(2, 1), (1, world_pts.shape[1]))
+        grid_local_dist = np.linalg.norm(
+            grid_local_pts - np.repeat(trans, grid_local_pts.shape[1], axis=1), axis=0)
+
+        grid_local_pts_tan = [(grid_local_pts[1, i] / grid_local_pts[0, i]) if grid_local_pts[0, i]
+                              != 0 else (math.pi/2 if grid_local_pts[1, i] > 0 else -math.pi/2)
+                              for i in range(grid_local_pts.shape[1])]
+        # Angle between scan center and the point
+        grid_local_pts_angle = np.arctan(grid_local_pts_tan)
+
+        # Pick the points inside the view frustum
+        # This positive grid_local_pts[0] check only works when the scan angle covering less than pi!
+        """
+            --------------------------------
+              \                         /
+                  \                /
+                       \       /
+                           *  (scan optical center)
+        """
+        # For each local grid coordinates in robot frame, compute the scan hit index in camera
+        scan_pts_idxs = ((grid_local_pts_angle - min_angle + inc_angle / 2) /
+                         inc_angle).astype(np.int16)
+        grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
+                                                        np.logical_and(grid_local_dist <= max_range,
+                                                                       grid_local_dist >= min_range)),
+                                         np.logical_and(grid_local_pts_angle >= min_angle,
+                                                        grid_local_pts_angle <= max_angle)
+                                         )
+        num_scan = np.ceil((max_angle - min_angle) / inc_angle) + 1
+
+        # Calculate depth update for valid voxels
+        depth_val = np.zeros(N)
+        depth_val[grid_valid_idxs] = scan[scan_pts_idxs[grid_valid_idxs]]
+        depth_diff = depth_val - grid_local_dist
+        # Truncate
+        depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation,
+                                               depth_diff < self._truncation)
+        valid_idxs = np.logical_and(grid_valid_idxs, depth_diff_valid_idxs)
+        valid_idxs = np.reshape(valid_idxs, (self._size_y, self._size_x))
+        depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
+
+        self._UpdateSdfMap(valid_idxs, depth_diff)
+
 
     def _UpdateSdfMap(self, idxs, depth_diff):
         new_freq_map = self._freq_map + 1

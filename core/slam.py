@@ -117,7 +117,6 @@ class SLAM(object):
 
             try:
                 xi = -np.dot(np.linalg.inv(H), g)
-                print "   Opt: ", xi
             except np.linalg.LinAlgError as err:
                 print "Hessian matrix not invertible."
                 xi = np.zeros((3, 1), dtype=np.float32)
@@ -139,7 +138,7 @@ class SLAM(object):
         # self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
-        while (t < len(self._times)):
+        while (t < len(self._times) - self.kDeltaTime):
             print "t: ", t
             scan_data = np.array(self._scans[t][0])
             scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
@@ -152,7 +151,7 @@ class SLAM(object):
                 self._min_range, self._max_range)
             print curr_pose
             print "Ground truth: ", self._poses[t]
-            self._grid_map.VisualizeSdfMap()
+            # self._grid_map.VisualizeSdfMap()
             # exit()
         self.VisualizeOdomAndGt()
 
