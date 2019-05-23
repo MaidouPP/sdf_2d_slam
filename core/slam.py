@@ -25,7 +25,7 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 5
+    kDeltaTime = 3
     kOptMaxIters = 20
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
@@ -154,6 +154,7 @@ class SLAM(object):
             # self._grid_map.VisualizeSdfMap()
             # exit()
         self.VisualizeOdomAndGt()
+        self._grid_map.VisualizeSdfMap()
 
     def VisualizeOdomAndGt(self):
         xs = []
