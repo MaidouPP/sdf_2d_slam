@@ -1,5 +1,7 @@
 import numpy as np
 
+from scipy.linalg import expm
+
 
 def GetSE2FromPose(pose):
     # This is NOT exponential map for se2
@@ -31,22 +33,31 @@ def LogFromSE2(mat):
     print u
     return np.hstack(u, yaw)
 
+# def ExpFromSe2(xi):
+#     # Need to verify this function!!!!
+#     assert(xi.shape[0] == 3)
+#     mat = np.identity(3, dtype=np.float32)
+#     # Rotation
+#     yaw = xi[2]
+#     mat[0, 0] = np.cos(yaw)
+#     mat[0, 1] = -np.sin(yaw)
+#     mat[1, 0] = np.sin(yaw)
+#     mat[1, 1] = np.cos(yaw)
+#     # Translation
+#     a = float(np.sin(yaw) / yaw)
+#     b = float((1 - np.cos(yaw)) / yaw)
+#     tmp = np.array([[a, -b], [b, a]], dtype=np.float32)
+#     mat[:2, 2] = np.dot(tmp, xi[:2]).reshape((2,))
+#     return mat
+
 def ExpFromSe2(xi):
-    # Need to verify this function!!!!
     assert(xi.shape[0] == 3)
-    mat = np.identity(3, dtype=np.float32)
-    # Rotation
     yaw = xi[2]
-    mat[0, 0] = np.cos(yaw)
-    mat[0, 1] = -np.sin(yaw)
-    mat[1, 0] = np.sin(yaw)
-    mat[1, 1] = np.cos(yaw)
-    # Translation
-    a = float(np.sin(yaw) / yaw)
-    b = float((1 - np.cos(yaw)) / yaw)
-    tmp = np.array([[a, -b], [b, a]], dtype=np.float32)
-    mat[:2, 2] = np.dot(tmp, xi[:2]).reshape((2,))
-    return mat
+    tmp = np.zeros((3, 3), dtype=np.float32)
+    tmp[0, 1] = -yaw
+    tmp[1, 0] = yaw
+    tmp[:2, 2] = xi[:2].reshape((2,))
+    return expm(tmp)
 
 def GetScanWorldCoordsFromSE2(scan, mat):
     """

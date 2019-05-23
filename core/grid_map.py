@@ -174,7 +174,8 @@ class GridMap(object):
     def _IsValid(self, r, c):
         # Assume (r, c) is valid coordinate
         if self._sdf_map[r][c] > self._truncation - self.kEps or \
-           self._sdf_map[r][c] < -self._truncation + self.kEps:
+           self._sdf_map[r][c] < -self._truncation + self.kEps or \
+           self._freq_map[r][c] < 1:
             return False
         else:
             return True

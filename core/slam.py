@@ -25,7 +25,7 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 3
+    kDeltaTime = 5
     kOptMaxIters = 20
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
@@ -86,7 +86,6 @@ class SLAM(object):
         xi = np.array([0, 0, 0], dtype=np.float32)
         it = 0
         # last_pose is a SE2
-        # utils.GetSE2FromPose(self._last_pose)
         last_pose = self._last_pose
 
         while it < self.kOptMaxIters:
@@ -110,7 +109,7 @@ class SLAM(object):
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
                     J_x_xi[0, 2] = -y
                     J_x_xi[1, 2] = x
-                    # Jacobian of shape (1, 3)
+                    # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
                     H += np.dot(J.transpose(), J)
@@ -118,6 +117,7 @@ class SLAM(object):
 
             try:
                 xi = -np.dot(np.linalg.inv(H), g)
+                print "   Opt: ", xi
             except np.linalg.LinAlgError as err:
                 print "Hessian matrix not invertible."
                 xi = np.zeros((3, 1), dtype=np.float32)
@@ -141,7 +141,7 @@ class SLAM(object):
         t = self.kDeltaTime
         while (t < len(self._times)):
             print "t: ", t
-            scan_data = np.array(self._scans[0][0])
+            scan_data = np.array(self._scans[t][0])
             scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
             curr_pose = self.Track(scan_local_xys)
             self._est_poses.append(curr_pose)
@@ -153,7 +153,7 @@ class SLAM(object):
             print curr_pose
             print "Ground truth: ", self._poses[t]
             self._grid_map.VisualizeSdfMap()
-            exit()
+            # exit()
         self.VisualizeOdomAndGt()
 
     def VisualizeOdomAndGt(self):
