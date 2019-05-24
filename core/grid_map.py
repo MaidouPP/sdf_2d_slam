@@ -36,7 +36,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 5 * self._res
+        self._truncation = 2 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
@@ -61,7 +61,7 @@ class GridMap(object):
         return self._sdf_map
 
     def GetSdfValue(self, r, c):
-        return self._sdf_map[r, c]
+        return self.InterpolateSdfValue(r, c)
 
     def MapOneScan(self, scan, pose):
         """
@@ -81,9 +81,27 @@ class GridMap(object):
         plt.imshow(self._occupancy_map)
         plt.show(block=True)
 
+    def InterpolateSdfValue(self, r, c):
+        # r and c are float numbers, indicating the index of the cell
+        w_sum = 0.0
+        sdf_sum = 0.0
+        for r_offset in [-1.0, 0.0, 1.0]:
+            for c_offset in [-1.0, 0.0, 1.0]:
+                r_curr = int(int(r) + r_offset)
+                c_curr = int(int(c) + c_offset)
+                volume = np.fabs(r_curr - r) * np.fabs(c_curr - c)
+                if self._freq_map[r_curr, c_curr] > 0:
+                    if volume < 0.00001:
+                        return self._sdf_map[r_curr, c_curr]
+                    w = 1.0 / volume
+                    w_sum += 1.0 / volume
+                    sdf_sum += w * self._sdf_map[r_curr, c_curr]
+        return sdf_sum / w_sum
+
     def FuseSdf(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
         """
         input:
+        - scan: beam depth vector
         - pose: SE2
         """
         # trans = pose[:2, 2].reshape((2, 1))
@@ -124,8 +142,8 @@ class GridMap(object):
                            *  (scan optical center)
         """
         # For each local grid coordinates in robot frame, compute the scan hit index in camera
-        scan_pts_idxs = ((grid_local_pts_angle - min_angle + inc_angle / 2) /
-                         inc_angle).astype(np.int16)
+        scan_pts_idxs = ((grid_local_pts_angle - min_angle) /
+                         inc_angle + 0.5).astype(np.int16)
         grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
                                                         np.logical_and(grid_local_dist <= max_range,
                                                                        grid_local_dist >= min_range)),
@@ -146,9 +164,6 @@ class GridMap(object):
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 
         self._UpdateSdfMap(valid_idxs, depth_diff)
-
-    def FuseSdfRayTracing(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
-        pass
 
     def _UpdateSdfMap(self, idxs, depth_diff):
         new_freq_map = self._freq_map + 1
@@ -172,6 +187,17 @@ class GridMap(object):
             ((ys - self._mini_y) / self._res).astype(np.int16) - 1
         return cell_cs, cell_rs
 
+    def FromMeterToCellNoRound(self, scan):
+        """
+        Transform **world** scan in meter to world scan in cell coordinates (no rounding to integer).
+        """
+        xs = scan[0, :]
+        ys = scan[1, :]
+        # Convert from meters to cells
+        cell_cs = ((xs - self._mini_x) / self._res)
+        cell_rs = self._size_y -((ys - self._mini_y) / self._res)
+        return cell_cs, cell_rs
+
     def _IsValid(self, r, c):
         # Assume (r, c) is valid coordinate
         if self._sdf_map[r][c] > self._truncation - self.kEps or \
@@ -183,19 +209,19 @@ class GridMap(object):
 
     def HasValidGradient(self, r, c):
         # Check boundary
-        if r < 1 or c < 1 or r >= self._size_y - 1 or c >= self._size_x - 1:
+        if r-1 < 0 or c-1 < 0 or r+1 > self._size_y - 1 or c+1 > self._size_x - 1:
             return False
 
-        if self._IsValid(r-1, c) and self._IsValid(r+1, c) and \
-           self._IsValid(r, c-1) and self._IsValid(r, c+1):
+        if self._IsValid(int(r-1), int(c)) and self._IsValid(int(r+1), int(c)) and \
+           self._IsValid(int(r), int(c-1)) and self._IsValid(int(r), int(c+1)):
             return True
         else:
             return False
 
     def CalcSdfGradient(self, r, c):
         # User must already check the validity of (r, c)
-        g_x = 0.5 * (self._sdf_map[r, c+1] - self._sdf_map[r, c-1]) / self._res
-        g_y = 0.5 * (self._sdf_map[r-1, c] - self._sdf_map[r+1, c]) / self._res
+        g_x = 0.5 * (self.InterpolateSdfValue(r, c+1) - self.InterpolateSdfValue(r, c-1)) / self._res
+        g_y = 0.5 * (self.InterpolateSdfValue(r-1, c) - self.InterpolateSdfValue(r+1, c)) / self._res
         g = np.array([g_x, g_y], dtype=np.float32)
         g = np.reshape(g, [1, 2])
         return g

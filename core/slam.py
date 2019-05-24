@@ -90,10 +90,11 @@ class SLAM(object):
 
         while it < self.kOptMaxIters:
             scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
-            scan_cs, scan_rs = self._grid_map.FromMeterToCell(scan_w)
+            scan_cs, scan_rs = self._grid_map.FromMeterToCellNoRound(scan_w)
             # Hessian
             H = np.zeros((3, 3), dtype=np.float32)
             g = np.zeros((3, 1), dtype=np.float32)
+            err_sum = 0.0
 
             # Calculate hessian and g term
             for i in range(scan_cs.shape[0]):
@@ -114,7 +115,8 @@ class SLAM(object):
                     # Gauss-Newton approximation to Hessian
                     H += np.dot(J.transpose(), J)
                     g += J.transpose() * self._grid_map.GetSdfValue(r, c)
-
+                    # print self._grid_map.GetSdfValue(r, c)
+                    err_sum += self._grid_map.GetSdfValue(r, c) * self._grid_map.GetSdfValue(r, c)
             try:
                 xi = -np.dot(np.linalg.inv(H), g)
             except np.linalg.LinAlgError as err:
@@ -126,6 +128,7 @@ class SLAM(object):
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
             it += 1
+            print "   error term: ", err_sum
 
         return last_pose
 
@@ -135,7 +138,7 @@ class SLAM(object):
         self._grid_map.FuseSdf(
             scan_data, pose_mat, self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range)
-        # self._grid_map.VisualizeSdfMap()
+        self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
         while (t < len(self._times) - self.kDeltaTime):
