@@ -36,7 +36,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 2 * self._res
+        self._truncation = 5 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map

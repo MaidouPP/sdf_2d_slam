@@ -97,12 +97,14 @@ class SLAM(object):
             err_sum = 0.0
 
             # Calculate hessian and g term
+            opt_num = 0
             for i in range(scan_cs.shape[0]):
                 c = scan_cs[i]
                 r = scan_rs[i]
                 x = scan_w[0, i]
                 y = scan_w[1, i]
                 if self._grid_map.HasValidGradient(r, c):
+                    opt_num += 1
                     # dD / dx
                     J_d_x = self._grid_map.CalcSdfGradient(r, c)
                     # dx / d\xi
@@ -123,12 +125,14 @@ class SLAM(object):
                 print "Hessian matrix not invertible."
                 xi = np.zeros((3, 1), dtype=np.float32)
 
+            err_metric = err_sum / opt_num
+            print "   error term: ", err_metric
             # Check if xi is too small so that we can stop optimization
-            if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans:
+            if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans or \
+               err_metric < 0.001:
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
             it += 1
-            print "   error term: ", err_sum
 
         return last_pose
 
