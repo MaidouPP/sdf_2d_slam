@@ -25,7 +25,7 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 3
+    kDeltaTime = 8
     kOptMaxIters = 20
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
@@ -98,6 +98,8 @@ class SLAM(object):
 
             # Calculate hessian and g term
             opt_num = 0
+            invalid_rs = []
+            invalid_cs = []
             for i in range(scan_cs.shape[0]):
                 c = scan_cs[i]
                 r = scan_rs[i]
@@ -119,19 +121,25 @@ class SLAM(object):
                     g += J.transpose() * self._grid_map.GetSdfValue(r, c)
                     # print self._grid_map.GetSdfValue(r, c)
                     err_sum += self._grid_map.GetSdfValue(r, c) * self._grid_map.GetSdfValue(r, c)
+                else:
+                    invalid_rs.append(int(r))
+                    invalid_cs.append(int(c))
+            # self._grid_map.VisualizePoints(invalid_rs, invalid_cs)
+            logging.info("opt_num: %s", opt_num)
+            err_metric = err_sum / opt_num
+            logging.info("   error term: %s ", err_metric)
             try:
                 xi = -np.dot(np.linalg.inv(H), g)
             except np.linalg.LinAlgError as err:
-                print "Hessian matrix not invertible."
+                logging.info("Hessian matrix not invertible.")
                 xi = np.zeros((3, 1), dtype=np.float32)
 
-            err_metric = err_sum / opt_num
-            print "   error term: ", err_metric
             # Check if xi is too small so that we can stop optimization
             if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans or \
-               err_metric < 0.001:
+               err_metric < 0.0005:
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
+            # logging.info("    last pose term: %s ", last_pose)
             it += 1
 
         return last_pose
@@ -145,8 +153,10 @@ class SLAM(object):
         self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
+        prev_scan_data = scan_data
         while (t < len(self._times) - self.kDeltaTime):
-            print "t: ", t
+            logging.info("t: %s", t)
+            logging.info("Ground truth: %s", self._poses[t])
             scan_data = np.array(self._scans[t][0])
             scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
             curr_pose = self.Track(scan_local_xys)
@@ -156,8 +166,7 @@ class SLAM(object):
             self._grid_map.FuseSdf(
                 scan_data, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range)
-            print curr_pose
-            print "Ground truth: ", self._poses[t]
+            logging.info("current pose %s", curr_pose)
             # self._grid_map.VisualizeSdfMap()
             # exit()
         self.VisualizeOdomAndGt()
@@ -181,6 +190,8 @@ class SLAM(object):
 
 def main(argv):
     FLAGS(sys.argv)
+    logging.basicConfig(format='%(asctime)s,%(msecs)d [%(filename)s:%(lineno)d] %(message)s',
+                        datefmt='%Y-%m-%d:%H:%M:%S')
     logging.getLogger().setLevel(logging.INFO)
     slam = SLAM(FLAGS.data_path, FLAGS.map_config_path)
     slam.Run()

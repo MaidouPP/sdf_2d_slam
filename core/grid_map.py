@@ -89,12 +89,17 @@ class GridMap(object):
             for c_offset in [-1.0, 0.0, 1.0]:
                 r_curr = int(int(r) + r_offset)
                 c_curr = int(int(c) + c_offset)
-                volume = np.fabs(r_curr - r) * np.fabs(c_curr - c)
+                # Calculate the coordinate distance (in cells)
+                r_dist = float(np.fabs(r_curr + 0.5 - r))
+                c_dist = float(np.fabs(c_curr + 0.5 - c))
+                if r_dist > 1.0 or c_dist > 1.0:
+                    continue
+                volume = r_dist * c_dist
                 if self._freq_map[r_curr, c_curr] > 0:
                     if volume < 0.00001:
                         return self._sdf_map[r_curr, c_curr]
                     w = 1.0 / volume
-                    w_sum += 1.0 / volume
+                    w_sum += w
                     sdf_sum += w * self._sdf_map[r_curr, c_curr]
         return sdf_sum / w_sum
 
@@ -114,7 +119,8 @@ class GridMap(object):
 
         # Grid cells coordinates to world coordinates in meters (in xy fashion)
         world_pts = grid_coords.astype(
-            float) * self._res + self._grid_ul_coord.reshape(-1, 1) + np.array([self._res/2, self._res/2]).reshape(-1, 1)
+            float) * self._res + self._grid_ul_coord.reshape(-1, 1) + \
+            np.array([self._res/2, self._res/2]).reshape(-1, 1)
 
         # World coordinates to camera coordinates transform
         T_c_w = np.linalg.inv(pose)
@@ -195,7 +201,7 @@ class GridMap(object):
         ys = scan[1, :]
         # Convert from meters to cells
         cell_cs = ((xs - self._mini_x) / self._res)
-        cell_rs = self._size_y -((ys - self._mini_y) / self._res)
+        cell_rs = self._size_y - ((ys - self._mini_y) / self._res)
         return cell_cs, cell_rs
 
     def _IsValid(self, r, c):
@@ -220,13 +226,16 @@ class GridMap(object):
 
     def CalcSdfGradient(self, r, c):
         # User must already check the validity of (r, c)
-        g_x = 0.5 * (self.InterpolateSdfValue(r, c+1) - self.InterpolateSdfValue(r, c-1)) / self._res
-        g_y = 0.5 * (self.InterpolateSdfValue(r-1, c) - self.InterpolateSdfValue(r+1, c)) / self._res
+        g_x = 0.5 * (self.InterpolateSdfValue(r, c+1.0) -
+                     self.InterpolateSdfValue(r, c-1.0)) / self._res
+        g_y = 0.5 * (self.InterpolateSdfValue(r-1.0, c) -
+                     self.InterpolateSdfValue(r+1.0, c)) / self._res
         g = np.array([g_x, g_y], dtype=np.float32)
         g = np.reshape(g, [1, 2])
         return g
 
     def VisualizePoints(self, rows, cols):
         canvas = np.zeros([self._size_y, self._size_x])
+        print rows, cols
         canvas[rows, cols] = 1
         self._VisualizeOccupancyGrid(canvas)
