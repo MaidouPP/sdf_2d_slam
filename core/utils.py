@@ -8,10 +8,10 @@ def GetSE2FromPose(pose):
     x, y, yaw = pose
     # Construct transform matrix
     rot = np.identity(2, dtype=np.float32)
-    rot[0, 0] = np.cos(yaw)
-    rot[0, 1] = -np.sin(yaw)
-    rot[1, 0] = np.sin(yaw)
-    rot[1, 1] = np.cos(yaw)
+    rot[0, 0] = float(np.cos(yaw))
+    rot[0, 1] = float(-np.sin(yaw))
+    rot[1, 0] = float(np.sin(yaw))
+    rot[1, 1] = float(np.cos(yaw))
     # Translation vector
     mat = np.identity(3, dtype=np.float32)
     mat[:2, :2] = rot
@@ -79,7 +79,7 @@ def GetScanWorldCoordsFromPose(scan, pose):
       pose - (x, y, yaw)
     """
     mat = GetSE2FromPose(pose)
-    return GetScanWorldCoordsFromSE2(mat)
+    return GetScanWorldCoordsFromSE2(scan, mat)
 
 def Bresenham2D(sx, sy, ex, ey):
     sx = int(round(sx))

@@ -25,7 +25,7 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 5
+    kDeltaTime = 8
     kOptMaxIters = 20
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
@@ -145,7 +145,7 @@ class SLAM(object):
 
             # Check if xi is too small so that we can stop optimization
             if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans or \
-               err_metric < 0.0005:
+               err_metric < 0.0008:
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
             it += 1
@@ -166,18 +166,23 @@ class SLAM(object):
         while (t < len(self._times) - self.kDeltaTime):
             logging.info("t: %s", t)
             logging.info("Ground truth: %s", self._poses[t])
+            # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
                 scan_data)
+            # Track from sdf map
             curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            # For test
+            # self._grid_map.MapOneScanFromSE2(scan_local_xys, curr_pose)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             t += self.kDeltaTime
+            # Update the sdf map
             self._grid_map.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range, self._scan_dir_vecs)
             logging.info("current pose %s", curr_pose)
-            # self._grid_map.VisualizeSdfMap()
+            self._grid_map.VisualizeSdfMap()
             # exit()
         self.VisualizeOdomAndGt()
         self._grid_map.VisualizeSdfMap()

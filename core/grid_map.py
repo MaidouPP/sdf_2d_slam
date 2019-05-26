@@ -23,8 +23,8 @@ class GridMap(object):
             cfg = yaml.load(fp)
             self._map_name = cfg['name']
             # Width, height and resolution in meters
-            self._width = cfg['width']
-            self._height = cfg['height']
+            self._width = cfg['width'] + 0.4
+            self._height = cfg['height'] + 0.4
             self._res = cfg['resolution']
 
         # Always assume the center of the map is at world (0m, 0m)
@@ -41,7 +41,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 10 * self._res
+        self._truncation = 6 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
@@ -74,7 +74,7 @@ class GridMap(object):
           scan - laser point coordinates in meters in robot frame
           pose - (x, y, yaw)
         """
-        scan_w = utils.GetScanWorldCoords(scan, pose)
+        scan_w = utils.GetScanWorldCoordsFromPose(scan, pose)
 
         # Get the cell coordinates of scan hit points
         scan_w_xs, scan_w_ys = self.FromMeterToCell(scan_w)
@@ -84,6 +84,25 @@ class GridMap(object):
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         plt.imshow(self._occupancy_map)
+        plt.show(block=True)
+
+    def MapOneScanFromSE2(self, scan, pose):
+        """
+        input:
+          scan - laser point coordinates in meters in robot frame
+          pose - SE2
+        """
+        occupancy_map = np.zeros([self._size_y, self._size_x], np.float32)
+        scan_w = utils.GetScanWorldCoordsFromSE2(scan, pose)
+
+        # Get the cell coordinates of scan hit points
+        scan_w_xs, scan_w_ys = self.FromMeterToCell(scan_w)
+
+        occupancy_map[scan_w_ys, scan_w_xs] = 1
+
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        plt.imshow(occupancy_map)
         plt.show(block=True)
 
     def InterpolateSdfValue(self, r, c):
@@ -99,7 +118,7 @@ class GridMap(object):
                 c_dist = float(np.fabs(c_curr + 0.5 - c))
                 if r_dist > 1.0 or c_dist > 1.0:
                     continue
-                volume = r_dist + c_dist
+                volume = r_dist * c_dist
                 if self._freq_map[r_curr, c_curr] > 0:
                     if volume < 0.0001:
                         return self._sdf_map[r_curr, c_curr]
@@ -151,7 +170,7 @@ class GridMap(object):
         # Grid cells coordinates to world coordinates in meters (in xy fashion)
         world_pts = grid_coords.astype(
             float) * self._res + self._grid_ul_coord.reshape(-1, 1) + \
-            np.array([self._res/2, self._res/2]).reshape(-1, 1)
+            np.array([self._res/2, -self._res/2]).reshape(-1, 1)
 
         # World coordinates to camera coordinates transform
         T_c_w = np.linalg.inv(pose)
@@ -206,8 +225,8 @@ class GridMap(object):
         depth_diff = np.multiply(np.sign(p2p_dist), np.fabs(np.dot(normals[scan_pts_idxs], tmp).diagonal()))
 
         # Truncate
-        depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation,
-                                               depth_diff < self._truncation)
+        depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation + self.kEps,
+                                               depth_diff < self._truncation - self.kEps)
         valid_idxs = np.logical_and(grid_valid_idxs, depth_diff_valid_idxs)
         valid_idxs = np.logical_and(valid_idxs, scan_valid_idxs[scan_pts_idxs])
 
@@ -283,6 +302,5 @@ class GridMap(object):
 
     def VisualizePoints(self, rows, cols):
         canvas = np.zeros([self._size_y, self._size_x])
-        print rows, cols
         canvas[rows, cols] = 1
         self._VisualizeOccupancyGrid(canvas)
