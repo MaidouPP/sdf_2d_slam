@@ -6,9 +6,14 @@ import matplotlib.pyplot as plt
 import utils
 plt.ion()
 
+from sklearn.decomposition import PCA
+
 
 class GridMap(object):
-    kEps = 1e-6
+    kEps = 1e-6  # Truncation numerical error
+    kNormalWindow = 4  # The left/right neighboring of the beam hit point
+    # Range of distance of neighboring points (in meters)
+    kNormalDistThr = 0.08
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -36,12 +41,12 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 10 * self._res
+        self._truncation = 8 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
         self._freq_map = np.zeros([self._size_y, self._size_x])
-        # For test
+        # Only for test
         self._occupancy_map = np.zeros(
             [self._size_y, self._size_x], np.float32)
 
@@ -103,7 +108,35 @@ class GridMap(object):
                     sdf_sum += w * self._sdf_map[r_curr, c_curr]
         return sdf_sum / w_sum
 
-    def FuseSdf(self, scan, pose, min_angle, max_angle, inc_angle, min_range, max_range):
+    def GetNormalVecOfAScan(self, scan_valid_idxs, scan_local_xys, scan_dir_vecs):
+        assert(scan_local_xys.shape[0] == 2 and scan_dir_vecs.shape[0] == 2)
+        total_num = scan_local_xys.shape[1]
+        normals = np.zeros((total_num, 2), dtype=np.float32)
+        pca = PCA(n_components=2)
+        for i in range(total_num):
+            if not scan_valid_idxs[i]:
+                continue
+            coord_i = scan_local_xys[:, i].reshape((1, -1))
+            pts = coord_i
+            for j in range(i-self.kNormalWindow, i+self.kNormalWindow+1):
+                if j < 0 or j >= total_num or j == i:
+                    continue
+                coord_j = scan_local_xys[:, j].reshape((1, -1))
+                if np.linalg.norm(coord_i - coord_j) < self.kNormalDistThr:
+                    pts = np.concatenate((pts, coord_j), axis=0)
+
+            # If no neigboring points
+            if pts.shape[1] == 1:
+                normals[:, i] = scan_dir_vecs[:, i]
+            else:
+                pca.fit(pts)
+                # normal_vec = pca.components_[1]
+                normals[i] = pca.components_[1]
+
+        return normals
+
+    def FuseSdf(self, scan, scan_valid_idxs, scan_local_xys, pose, min_angle, max_angle, inc_angle,
+                min_range, max_range, scan_dir_vecs):
         """
         input:
         - scan: beam depth vector
@@ -141,7 +174,7 @@ class GridMap(object):
         # Pick the points inside the view frustum
         # This positive grid_local_pts[0] check only works when the scan angle covering less than pi!
         """
-            --------------------------------
+            -------------------------------
               \                         /
                   \                /
                        \       /
@@ -150,13 +183,19 @@ class GridMap(object):
         # For each local grid coordinates in robot frame, compute the scan hit index in camera
         scan_pts_idxs = ((grid_local_pts_angle - min_angle) /
                          inc_angle + 0.5).astype(np.int16)
+        self.GetNormalVecOfAScan(scan, scan_local_xys, scan_dir_vecs)
+        num_scan = np.ceil((max_angle - min_angle) / inc_angle) + 1
+        # Get valid grid cell indexes
         grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
                                                         np.logical_and(grid_local_dist <= max_range,
                                                                        grid_local_dist >= min_range)),
-                                         np.logical_and(grid_local_pts_angle >= min_angle,
-                                                        grid_local_pts_angle <= max_angle)
-                                         )
-        num_scan = np.ceil((max_angle - min_angle) / inc_angle) + 1
+                                         np.logical_and(
+                                             np.logical_and(scan_pts_idxs > 0, scan_pts_idxs < num_scan),
+                                             np.logical_and(grid_local_pts_angle >= min_angle,
+                                                            grid_local_pts_angle <= max_angle)))
+        # Prepare for validating according to laser range
+        scan_pts_idxs[scan_pts_idxs < 0] = 0
+        scan_pts_idxs[scan_pts_idxs >= num_scan] = 0
 
         # Calculate depth update for valid voxels
         depth_val = np.zeros(N)
@@ -166,6 +205,7 @@ class GridMap(object):
         depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation,
                                                depth_diff < self._truncation)
         valid_idxs = np.logical_and(grid_valid_idxs, depth_diff_valid_idxs)
+        valid_idxs = np.logical_and(valid_idxs, scan_valid_idxs[scan_pts_idxs])
         valid_idxs = np.reshape(valid_idxs, (self._size_y, self._size_x))
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 

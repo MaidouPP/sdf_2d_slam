@@ -49,6 +49,8 @@ class SLAM(object):
         self._scan_angles = np.arange(self._min_angle,
                                       self._max_angle + self._res_angle,
                                       self._res_angle)
+        self._scan_dir_vecs = np.stack(
+            (np.cos(self._scan_angles), np.sin(self._scan_angles)))
 
         # Estimated poses (se2) from SDF tracker
         self._est_poses = []
@@ -73,13 +75,12 @@ class SLAM(object):
     def _ProcessScanToLocalCoords(self, scan):
         valid_idxs = np.logical_and((scan > self._min_range),
                                     (scan < self._max_range))
-        data = scan[valid_idxs]
-        angles = self._scan_angles[valid_idxs]
-        x = data * np.cos(angles)
-        y = data * np.sin(angles)
+        angles = self._scan_angles
+        x = scan * np.cos(angles)
+        y = scan * np.sin(angles)
         z = np.ones(x.shape)
         ret = np.stack((x, y))
-        return ret
+        return valid_idxs, ret
 
     def Track(self, scan):
         # Perturbation xi that we are trying to optimize
@@ -120,7 +121,8 @@ class SLAM(object):
                     H += np.dot(J.transpose(), J)
                     g += J.transpose() * self._grid_map.GetSdfValue(r, c)
                     # print self._grid_map.GetSdfValue(r, c)
-                    err_sum += self._grid_map.GetSdfValue(r, c) * self._grid_map.GetSdfValue(r, c)
+                    err_sum += self._grid_map.GetSdfValue(
+                        r, c) * self._grid_map.GetSdfValue(r, c)
                 else:
                     invalid_rs.append(int(r))
                     invalid_cs.append(int(c))
@@ -147,10 +149,13 @@ class SLAM(object):
     def Run(self):
         scan_data = np.array(self._scans[0][0])
         pose_mat = utils.GetSE2FromPose(self._poses[0])
+        scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
+            scan_data)
         self._grid_map.FuseSdf(
-            scan_data, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range)
+            scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
+            self._min_range, self._max_range, self._scan_dir_vecs)
         self._grid_map.VisualizeSdfMap()
+        exit()
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -158,17 +163,18 @@ class SLAM(object):
             logging.info("t: %s", t)
             logging.info("Ground truth: %s", self._poses[t])
             scan_data = np.array(self._scans[t][0])
-            scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
+            scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
+                scan_data)
             curr_pose = self.Track(scan_local_xys)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             t += self.kDeltaTime
             self._grid_map.FuseSdf(
-                scan_data, curr_pose, self._min_angle, self._max_angle, self._res_angle,
-                self._min_range, self._max_range)
+                scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
+                self._min_range, self._max_range, self._scan_dir_vecs)
             logging.info("current pose %s", curr_pose)
             # self._grid_map.VisualizeSdfMap()
-            # exit()
+            exit()
         self.VisualizeOdomAndGt()
         self._grid_map.VisualizeSdfMap()
 
@@ -187,6 +193,7 @@ class SLAM(object):
         plt.plot(gt_xs, gt_ys, c='r')
         plt.legend()
         plt.show(block=True)
+
 
 def main(argv):
     FLAGS(sys.argv)
