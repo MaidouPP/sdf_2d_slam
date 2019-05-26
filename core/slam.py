@@ -25,7 +25,7 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 8
+    kDeltaTime = 5
     kOptMaxIters = 20
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
@@ -153,9 +153,8 @@ class SLAM(object):
             scan_data)
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range, self._scan_dir_vecs)
+            self._min_range, self._max_range, self._scan_dir_vecs, init=True)
         self._grid_map.VisualizeSdfMap()
-        exit()
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -174,7 +173,7 @@ class SLAM(object):
                 self._min_range, self._max_range, self._scan_dir_vecs)
             logging.info("current pose %s", curr_pose)
             # self._grid_map.VisualizeSdfMap()
-            exit()
+            # exit()
         self.VisualizeOdomAndGt()
         self._grid_map.VisualizeSdfMap()
 

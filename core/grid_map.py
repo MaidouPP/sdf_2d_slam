@@ -41,7 +41,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 8 * self._res
+        self._truncation = 10 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
@@ -108,7 +108,7 @@ class GridMap(object):
                     sdf_sum += w * self._sdf_map[r_curr, c_curr]
         return sdf_sum / w_sum
 
-    def GetNormalVecOfAScan(self, scan_valid_idxs, scan_local_xys, scan_dir_vecs):
+    def CalcNormalVecOfAScan(self, scan_valid_idxs, scan_local_xys, scan_dir_vecs):
         assert(scan_local_xys.shape[0] == 2 and scan_dir_vecs.shape[0] == 2)
         total_num = scan_local_xys.shape[1]
         normals = np.zeros((total_num, 2), dtype=np.float32)
@@ -132,11 +132,10 @@ class GridMap(object):
                 pca.fit(pts)
                 # normal_vec = pca.components_[1]
                 normals[i] = pca.components_[1]
-
         return normals
 
     def FuseSdf(self, scan, scan_valid_idxs, scan_local_xys, pose, min_angle, max_angle, inc_angle,
-                min_range, max_range, scan_dir_vecs):
+                min_range, max_range, scan_dir_vecs, init=False):
         """
         input:
         - scan: beam depth vector
@@ -172,7 +171,6 @@ class GridMap(object):
         grid_local_pts_angle = np.arctan(grid_local_pts_tan)
 
         # Pick the points inside the view frustum
-        # This positive grid_local_pts[0] check only works when the scan angle covering less than pi!
         """
             -------------------------------
               \                         /
@@ -183,9 +181,9 @@ class GridMap(object):
         # For each local grid coordinates in robot frame, compute the scan hit index in camera
         scan_pts_idxs = ((grid_local_pts_angle - min_angle) /
                          inc_angle + 0.5).astype(np.int16)
-        self.GetNormalVecOfAScan(scan, scan_local_xys, scan_dir_vecs)
         num_scan = np.ceil((max_angle - min_angle) / inc_angle) + 1
         # Get valid grid cell indexes
+        # This positive grid_local_pts[0] check only works when the scan angle covering less than pi!
         grid_valid_idxs = np.logical_and(np.logical_and(grid_local_pts[0] > 0,
                                                         np.logical_and(grid_local_dist <= max_range,
                                                                        grid_local_dist >= min_range)),
@@ -193,14 +191,21 @@ class GridMap(object):
                                              np.logical_and(scan_pts_idxs > 0, scan_pts_idxs < num_scan),
                                              np.logical_and(grid_local_pts_angle >= min_angle,
                                                             grid_local_pts_angle <= max_angle)))
-        # Prepare for validating according to laser range
+        # Prepare for validating the indexing (getting rid of too large or too small indexes)
         scan_pts_idxs[scan_pts_idxs < 0] = 0
         scan_pts_idxs[scan_pts_idxs >= num_scan] = 0
+
+        # Calculate normal vectors of the current scan
+        normals = self.CalcNormalVecOfAScan(scan_valid_idxs, scan_local_xys, scan_dir_vecs)
 
         # Calculate depth update for valid voxels
         depth_val = np.zeros(N)
         depth_val[grid_valid_idxs] = scan[scan_pts_idxs[grid_valid_idxs]]
-        depth_diff = depth_val - grid_local_dist
+        # Calculate point-to-plane distance
+        p2p_dist = depth_val - grid_local_dist
+        tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
+        depth_diff = np.multiply(np.sign(p2p_dist), np.fabs(np.dot(normals[scan_pts_idxs], tmp).diagonal()))
+
         # Truncate
         depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation,
                                                depth_diff < self._truncation)
@@ -209,14 +214,17 @@ class GridMap(object):
         valid_idxs = np.reshape(valid_idxs, (self._size_y, self._size_x))
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 
-        self._UpdateSdfMap(valid_idxs, depth_diff)
+        self._UpdateSdfMap(valid_idxs, depth_diff, init=init)
 
-    def _UpdateSdfMap(self, idxs, depth_diff):
+    def _UpdateSdfMap(self, idxs, depth_diff, init=False):
         new_freq_map = self._freq_map + 1
         sdf_map = np.divide(np.multiply(
             self._sdf_map, self._freq_map) + depth_diff, new_freq_map)
         self._sdf_map[idxs] = sdf_map[idxs]
-        self._freq_map[idxs] += 1
+        if init:
+            self._freq_map[idxs] += 5
+        else:
+            self._freq_map[idxs] += 1
 
     def VisualizeSdfMap(self):
         self._VisualizeOccupancyGrid(self._sdf_map)
