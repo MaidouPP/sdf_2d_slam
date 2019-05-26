@@ -82,7 +82,7 @@ class SLAM(object):
         ret = np.stack((x, y))
         return valid_idxs, ret
 
-    def Track(self, scan):
+    def Track(self, valid_idxs, scan):
         # Perturbation xi that we are trying to optimize
         xi = np.array([0, 0, 0], dtype=np.float32)
         it = 0
@@ -90,6 +90,7 @@ class SLAM(object):
         last_pose = self._last_pose
 
         while it < self.kOptMaxIters:
+            # World scan coordinates
             scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
             scan_cs, scan_rs = self._grid_map.FromMeterToCellNoRound(scan_w)
             # Hessian
@@ -102,10 +103,16 @@ class SLAM(object):
             invalid_rs = []
             invalid_cs = []
             for i in range(scan_cs.shape[0]):
+                if not valid_idxs[i]:
+                    continue
                 c = scan_cs[i]
                 r = scan_rs[i]
-                x = scan_w[0, i]
-                y = scan_w[1, i]
+                # World x and y
+                x_w = scan_w[0, i]
+                y_w = scan_w[1, i]
+                # Local x and y
+                x_l = scan[0, i]
+                y_l = scan[1, i]
                 if self._grid_map.HasValidGradient(r, c):
                     opt_num += 1
                     # dD / dx
@@ -113,8 +120,8 @@ class SLAM(object):
                     # dx / d\xi
                     J_x_xi = np.zeros((2, 3), dtype=np.float32)
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
-                    J_x_xi[0, 2] = -y
-                    J_x_xi[1, 2] = x
+                    J_x_xi[0, 2] = -y_l
+                    J_x_xi[1, 2] = x_l
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
@@ -141,9 +148,7 @@ class SLAM(object):
                err_metric < 0.0005:
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
-            # logging.info("    last pose term: %s ", last_pose)
             it += 1
-
         return last_pose
 
     def Run(self):
@@ -164,7 +169,7 @@ class SLAM(object):
             scan_data = np.array(self._scans[t][0])
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
                 scan_data)
-            curr_pose = self.Track(scan_local_xys)
+            curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             t += self.kDeltaTime

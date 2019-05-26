@@ -99,9 +99,9 @@ class GridMap(object):
                 c_dist = float(np.fabs(c_curr + 0.5 - c))
                 if r_dist > 1.0 or c_dist > 1.0:
                     continue
-                volume = r_dist * c_dist
+                volume = r_dist + c_dist
                 if self._freq_map[r_curr, c_curr] > 0:
-                    if volume < 0.00001:
+                    if volume < 0.0001:
                         return self._sdf_map[r_curr, c_curr]
                     w = 1.0 / volume
                     w_sum += w
@@ -130,7 +130,6 @@ class GridMap(object):
                 normals[:, i] = scan_dir_vecs[:, i]
             else:
                 pca.fit(pts)
-                # normal_vec = pca.components_[1]
                 normals[i] = pca.components_[1]
         return normals
 
@@ -211,6 +210,7 @@ class GridMap(object):
                                                depth_diff < self._truncation)
         valid_idxs = np.logical_and(grid_valid_idxs, depth_diff_valid_idxs)
         valid_idxs = np.logical_and(valid_idxs, scan_valid_idxs[scan_pts_idxs])
+
         valid_idxs = np.reshape(valid_idxs, (self._size_y, self._size_x))
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 
@@ -243,7 +243,8 @@ class GridMap(object):
 
     def FromMeterToCellNoRound(self, scan):
         """
-        Transform **world** scan in meter to world scan in cell coordinates (no rounding to integer).
+        Transform **world** scan in meter to world scan in cell coordinates
+        (no rounding to integer).
         """
         xs = scan[0, :]
         ys = scan[1, :]
@@ -254,9 +255,7 @@ class GridMap(object):
 
     def _IsValid(self, r, c):
         # Assume (r, c) is valid coordinate
-        if self._sdf_map[r][c] > self._truncation - self.kEps or \
-           self._sdf_map[r][c] < -self._truncation + self.kEps or \
-           self._freq_map[r][c] < 1:
+        if self._freq_map[r][c] < 1:
             return False
         else:
             return True
