@@ -25,10 +25,12 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
 
 class SLAM(object):
     # Some constants
-    kDeltaTime = 8
-    kOptMaxIters = 20
+    kDeltaTime = 1
+    kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
+    kHuberThr = 20.0
+    kOptStopThr = 0.003
 
     def __init__(self, data_path, map_config_path):
         if not os.path.exists(data_path):
@@ -120,21 +122,27 @@ class SLAM(object):
                     # dx / d\xi
                     J_x_xi = np.zeros((2, 3), dtype=np.float32)
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
-                    J_x_xi[0, 2] = -y_l
-                    J_x_xi[1, 2] = x_l
+                    J_x_xi[0, 2] = -y_w
+                    J_x_xi[1, 2] = x_w
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    H += np.dot(J.transpose(), J)
-                    g += J.transpose() * self._grid_map.GetSdfValue(r, c)
+                    freq = float(self._grid_map.weight_map[int(r), int(c)])
+                    wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
+                    H += np.dot(J.transpose(), J) * wt
+                    g += J.transpose() * self._grid_map.GetSdfValue(r, c) * wt
                     # print self._grid_map.GetSdfValue(r, c)
                     err_sum += self._grid_map.GetSdfValue(
                         r, c) * self._grid_map.GetSdfValue(r, c)
                 else:
                     invalid_rs.append(int(r))
                     invalid_cs.append(int(c))
+            # print "------- current pose: ", last_pose
             # self._grid_map.VisualizePoints(invalid_rs, invalid_cs)
             logging.info("opt_num: %s", opt_num)
+            if opt_num == 0:
+                logging.error("opt_num=0!")
+                break
             err_metric = err_sum / opt_num
             logging.info("   error term: %s ", err_metric)
             try:
@@ -145,7 +153,7 @@ class SLAM(object):
 
             # Check if xi is too small so that we can stop optimization
             if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans or \
-               err_metric < 0.0008:
+               err_metric < self.kOptStopThr:
                 break
             last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
             it += 1
@@ -182,7 +190,8 @@ class SLAM(object):
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range, self._scan_dir_vecs)
             logging.info("current pose %s", curr_pose)
-            self._grid_map.VisualizeSdfMap()
+            # self._grid_map.VisualizeSdfMap()
+            # self._grid_map.VisualizeFreqMap()
             # exit()
         self.VisualizeOdomAndGt()
         self._grid_map.VisualizeSdfMap()

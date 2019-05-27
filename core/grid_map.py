@@ -13,7 +13,7 @@ class GridMap(object):
     kEps = 1e-6  # Truncation numerical error
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
-    kNormalDistThr = 0.08
+    kNormalDistThr = 0.1
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -41,7 +41,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 6 * self._res
+        self._truncation = 8 * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
@@ -64,6 +64,10 @@ class GridMap(object):
     @property
     def sdf_map(self):
         return self._sdf_map
+
+    @property
+    def weight_map(self):
+        return self._freq_map
 
     def GetSdfValue(self, r, c):
         return self.InterpolateSdfValue(r, c)
@@ -118,7 +122,7 @@ class GridMap(object):
                 c_dist = float(np.fabs(c_curr + 0.5 - c))
                 if r_dist > 1.0 or c_dist > 1.0:
                     continue
-                volume = r_dist * c_dist
+                volume = r_dist + c_dist
                 if self._freq_map[r_curr, c_curr] > 0:
                     if volume < 0.0001:
                         return self._sdf_map[r_curr, c_curr]
@@ -145,8 +149,8 @@ class GridMap(object):
                     pts = np.concatenate((pts, coord_j), axis=0)
 
             # If no neigboring points
-            if pts.shape[1] == 1:
-                normals[:, i] = scan_dir_vecs[:, i]
+            if pts.shape[1] <= 2:
+                normals[i] = scan_dir_vecs[:, i]
             else:
                 pca.fit(pts)
                 normals[i] = pca.components_[1]
@@ -241,7 +245,7 @@ class GridMap(object):
             self._sdf_map, self._freq_map) + depth_diff, new_freq_map)
         self._sdf_map[idxs] = sdf_map[idxs]
         if init:
-            self._freq_map[idxs] += 5
+            self._freq_map[idxs] += 1
         else:
             self._freq_map[idxs] += 1
 
@@ -304,3 +308,6 @@ class GridMap(object):
         canvas = np.zeros([self._size_y, self._size_x])
         canvas[rows, cols] = 1
         self._VisualizeOccupancyGrid(canvas)
+
+    def VisualizeFreqMap(self):
+        self._VisualizeOccupancyGrid(self._freq_map)
