@@ -3,4 +3,4 @@
 - [x] Scripts for extracting data from collected rosbags
 - [x] Implement creating a sdf map using a single scan and visualize
 - [x] Implement sdf fusion using true pose and create map
-- [ ] Implement sdf tracking
+- [x] Implement sdf tracking

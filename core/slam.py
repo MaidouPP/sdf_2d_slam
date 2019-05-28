@@ -129,15 +129,14 @@ class SLAM(object):
                     # Gauss-Newton approximation to Hessian
                     freq = float(self._grid_map.weight_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
+                    sdf_val = self._grid_map.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
-                    g += J.transpose() * self._grid_map.GetSdfValue(r, c) * wt
+                    g += J.transpose() * sdf_val * wt
                     # print self._grid_map.GetSdfValue(r, c)
-                    err_sum += self._grid_map.GetSdfValue(
-                        r, c) * self._grid_map.GetSdfValue(r, c)
+                    err_sum += sdf_val * sdf_val
                 else:
                     invalid_rs.append(int(r))
                     invalid_cs.append(int(c))
-            # print "------- current pose: ", last_pose
             # self._grid_map.VisualizePoints(invalid_rs, invalid_cs)
             logging.info("opt_num: %s", opt_num)
             if opt_num == 0:
@@ -166,7 +165,7 @@ class SLAM(object):
             scan_data)
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range, self._scan_dir_vecs, init=True)
+            self._min_range, self._max_range, self._scan_dir_vecs, plane=False, init=True)
         self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
@@ -188,8 +187,8 @@ class SLAM(object):
             # Update the sdf map
             self._grid_map.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
-                self._min_range, self._max_range, self._scan_dir_vecs)
-            logging.info("current pose %s", curr_pose)
+                self._min_range, self._max_range, self._scan_dir_vecs, plane=False)
+            logging.info("current pose %s, %s", curr_pose[0, 2], curr_pose[1, 2])
             # self._grid_map.VisualizeSdfMap()
             # self._grid_map.VisualizeFreqMap()
             # exit()

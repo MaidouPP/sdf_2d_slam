@@ -23,8 +23,8 @@ class GridMap(object):
             cfg = yaml.load(fp)
             self._map_name = cfg['name']
             # Width, height and resolution in meters
-            self._width = cfg['width'] + 0.4
-            self._height = cfg['height'] + 0.4
+            self._width = cfg['width'] + 1.0
+            self._height = cfg['height'] + 1.0
             self._res = cfg['resolution']
 
         # Always assume the center of the map is at world (0m, 0m)
@@ -122,9 +122,9 @@ class GridMap(object):
                 c_dist = float(np.fabs(c_curr + 0.5 - c))
                 if r_dist > 1.0 or c_dist > 1.0:
                     continue
-                volume = r_dist + c_dist
+                volume = r_dist * c_dist
                 if self._freq_map[r_curr, c_curr] > 0:
-                    if volume < 0.0001:
+                    if volume < 1e-7:
                         return self._sdf_map[r_curr, c_curr]
                     w = 1.0 / volume
                     w_sum += w
@@ -157,7 +157,7 @@ class GridMap(object):
         return normals
 
     def FuseSdf(self, scan, scan_valid_idxs, scan_local_xys, pose, min_angle, max_angle, inc_angle,
-                min_range, max_range, scan_dir_vecs, init=False):
+                min_range, max_range, scan_dir_vecs, plane=False, init=False):
         """
         input:
         - scan: beam depth vector
@@ -218,15 +218,20 @@ class GridMap(object):
         scan_pts_idxs[scan_pts_idxs >= num_scan] = 0
 
         # Calculate normal vectors of the current scan
-        normals = self.CalcNormalVecOfAScan(scan_valid_idxs, scan_local_xys, scan_dir_vecs)
+        if plane:
+            normals = self.CalcNormalVecOfAScan(scan_valid_idxs, scan_local_xys, scan_dir_vecs)
 
         # Calculate depth update for valid voxels
         depth_val = np.zeros(N)
         depth_val[grid_valid_idxs] = scan[scan_pts_idxs[grid_valid_idxs]]
-        # Calculate point-to-plane distance
-        p2p_dist = depth_val - grid_local_dist
-        tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
-        depth_diff = np.multiply(np.sign(p2p_dist), np.fabs(np.dot(normals[scan_pts_idxs], tmp).diagonal()))
+
+        # Calculate point-to-plane or point-to-point distance
+        if plane:
+            p2p_dist = depth_val - grid_local_dist
+            tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
+            depth_diff = np.multiply(np.sign(p2p_dist), np.fabs(np.dot(normals[scan_pts_idxs], tmp).diagonal()))
+        else:
+            depth_diff = depth_val - grid_local_dist
 
         # Truncate
         depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation + self.kEps,
