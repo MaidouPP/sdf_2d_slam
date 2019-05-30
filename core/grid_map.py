@@ -14,6 +14,7 @@ class GridMap(object):
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
     kNormalDistThr = 0.1
+    kTruncationThr = 10
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -41,7 +42,7 @@ class GridMap(object):
             [self._mini_x, self._maxi_y], dtype=np.float32)
 
         # Threshold of front and back truncation (in meters)
-        self._truncation = 8 * self._res
+        self._truncation = self.kTruncationThr * self._res
         # Construct sdf map
         self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
         # Construct visit frequency map
@@ -157,7 +158,7 @@ class GridMap(object):
         return normals
 
     def FuseSdf(self, scan, scan_valid_idxs, scan_local_xys, pose, min_angle, max_angle, inc_angle,
-                min_range, max_range, scan_dir_vecs, plane=False, init=False):
+                min_range, max_range, scan_dir_vecs, use_plane=False, init=False):
         """
         input:
         - scan: beam depth vector
@@ -218,7 +219,7 @@ class GridMap(object):
         scan_pts_idxs[scan_pts_idxs >= num_scan] = 0
 
         # Calculate normal vectors of the current scan
-        if plane:
+        if use_plane:
             normals = self.CalcNormalVecOfAScan(scan_valid_idxs, scan_local_xys, scan_dir_vecs)
 
         # Calculate depth update for valid voxels
@@ -226,15 +227,18 @@ class GridMap(object):
         depth_val[grid_valid_idxs] = scan[scan_pts_idxs[grid_valid_idxs]]
 
         # Calculate point-to-plane or point-to-point distance
-        if plane:
-            p2p_dist = depth_val - grid_local_dist
-            tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
-            depth_diff = np.multiply(np.sign(p2p_dist), np.fabs(np.dot(normals[scan_pts_idxs], tmp).diagonal()))
+        if use_plane:
+            p2p_dist = grid_local_pts - scan_local_xys[:, scan_pts_idxs]
+            # Normal direction may be incorrect, we can check x-axis value to see if positive or negative diff
+            p2p_dist_sign = np.sign(p2p_dist[0, :])
+            # p2p_dist = depth_val - grid_local_dist
+            # tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
+            depth_diff = np.multiply(p2p_dist_sign, np.fabs(np.dot(normals[scan_pts_idxs], p2p_dist).diagonal()))
         else:
             depth_diff = depth_val - grid_local_dist
 
         # Truncate
-        depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation + self.kEps,
+        depth_diff_valid_idxs = np.logical_and(depth_diff > -self._truncation/2 + self.kEps,
                                                depth_diff < self._truncation - self.kEps)
         valid_idxs = np.logical_and(grid_valid_idxs, depth_diff_valid_idxs)
         valid_idxs = np.logical_and(valid_idxs, scan_valid_idxs[scan_pts_idxs])

@@ -29,8 +29,8 @@ class SLAM(object):
     kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
-    kHuberThr = 20.0
-    kOptStopThr = 0.003
+    kHuberThr = 10.0
+    kOptStopThr = 0.002
 
     def __init__(self, data_path, map_config_path):
         if not os.path.exists(data_path):
@@ -165,8 +165,8 @@ class SLAM(object):
             scan_data)
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range, self._scan_dir_vecs, plane=False, init=True)
-        self._grid_map.VisualizeSdfMap()
+            self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
+        # self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -187,15 +187,15 @@ class SLAM(object):
             # Update the sdf map
             self._grid_map.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
-                self._min_range, self._max_range, self._scan_dir_vecs, plane=False)
-            logging.info("current pose %s, %s", curr_pose[0, 2], curr_pose[1, 2])
-            # self._grid_map.VisualizeSdfMap()
-            # self._grid_map.VisualizeFreqMap()
+                self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
+            logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
+            self._grid_map.VisualizeSdfMap()
+            self._grid_map.VisualizeFreqMap()
             # exit()
-        self.VisualizeOdomAndGt()
-        self._grid_map.VisualizeSdfMap()
+        self.VisualizeOdomAndGt(display=False)
+        # self._grid_map.VisualizeSdfMap()
 
-    def VisualizeOdomAndGt(self):
+    def VisualizeOdomAndGt(self, display=True):
         xs = []
         ys = []
         gt_xs = []
@@ -209,7 +209,10 @@ class SLAM(object):
         plt.plot(xs, ys, c='g')
         plt.plot(gt_xs, gt_ys, c='r')
         plt.legend()
-        plt.show(block=True)
+        if display:
+            plt.show(block=True)
+        else:
+            plt.savefig("odom.png")
 
 
 def main(argv):
