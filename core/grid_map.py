@@ -14,7 +14,7 @@ class GridMap(object):
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
     kNormalDistThr = 0.1
-    kTruncationThr = 10
+    kTruncationThr = 8
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -228,7 +228,7 @@ class GridMap(object):
 
         # Calculate point-to-plane or point-to-point distance
         if use_plane:
-            p2p_dist = grid_local_pts - scan_local_xys[:, scan_pts_idxs]
+            p2p_dist = -grid_local_pts + scan_local_xys[:, scan_pts_idxs]
             # Normal direction may be incorrect, we can check x-axis value to see if positive or negative diff
             p2p_dist_sign = np.sign(p2p_dist[0, :])
             # p2p_dist = depth_val - grid_local_dist

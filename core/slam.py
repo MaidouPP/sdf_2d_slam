@@ -30,7 +30,7 @@ class SLAM(object):
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
     kHuberThr = 10.0
-    kOptStopThr = 0.002
+    kOptStopThr = 0.0015
 
     def __init__(self, data_path, map_config_path):
         if not os.path.exists(data_path):
@@ -166,7 +166,7 @@ class SLAM(object):
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
-        # self._grid_map.VisualizeSdfMap()
+        self._grid_map.VisualizeSdfMap()
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -180,17 +180,19 @@ class SLAM(object):
             # Track from sdf map
             curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
             # For test
-            # self._grid_map.MapOneScanFromSE2(scan_local_xys, curr_pose)
+            # if t == 21 or t == 22:
+            #     self._grid_map.MapOneScanFromSE2(scan_local_xys, curr_pose)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
-            t += self.kDeltaTime
             # Update the sdf map
             self._grid_map.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
             logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
-            self._grid_map.VisualizeSdfMap()
-            self._grid_map.VisualizeFreqMap()
+            # if t == 21 or t == 22:
+            #     self._grid_map.VisualizeSdfMap()
+            #     self._grid_map.VisualizeFreqMap()
+            t += self.kDeltaTime
             # exit()
         self.VisualizeOdomAndGt(display=False)
         # self._grid_map.VisualizeSdfMap()
