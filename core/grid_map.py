@@ -14,7 +14,7 @@ class GridMap(object):
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
     kNormalDistThr = 0.1
-    kTruncationThr = 8
+    kTruncationThr = 10
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):

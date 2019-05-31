@@ -15,8 +15,8 @@ def GetSE2FromPose(pose):
     # Translation vector
     mat = np.identity(3, dtype=np.float32)
     mat[:2, :2] = rot
-    mat[2, 0] = x
-    mat[2, 1] = y
+    mat[0, 2] = x
+    mat[1, 2] = y
     return mat
 
 def LogFromSE2(mat):

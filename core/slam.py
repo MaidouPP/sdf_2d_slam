@@ -4,6 +4,7 @@ try:
     import cPickle as pickle
 except ImportError("No cPickle found. Will import pickle instead."):
     import pickle
+import cv2
 import gflags
 import logging
 import numpy as np
@@ -21,6 +22,8 @@ gflags.DEFINE_string("data_path", "../data/robopark.pkl",
                      "Path to the data file.")
 gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
                      "Path to the map config file.")
+gflags.DEFINE_string("depth_sensor_path", "../data/sensors/KinectDepth.yaml",
+                     "Path to the map config file.")
 
 
 class SLAM(object):
@@ -29,20 +32,30 @@ class SLAM(object):
     kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
-    kHuberThr = 10.0
-    kOptStopThr = 0.0015
+    kHuberThr = 15.0
+    kOptStopThr = 0.0018
 
-    def __init__(self, data_path, map_config_path):
+    def __init__(self, data_path, map_config_path, depth_sensor_path):
         if not os.path.exists(data_path):
             raise RuntimeError("File {} not found.".format(data_path))
 
         # Construct 2D grid map
         self._grid_map = GridMap(FLAGS.map_config_path)
 
+        fs = cv2.FileStorage(depth_sensor_path, cv2.FILE_STORAGE_READ)
+        T_rc = fs.getNode('Extrinsic').mat()
+
         # Read scan and pose data
         with open(FLAGS.data_path) as fp:
             data = pickle.load(fp)
             self._scans, self._poses, self._times = data
+        self._gt_poses = []
+
+        # Transform ground truth of depth camera
+        for p in self._poses:
+            # Twc = Twr * Trc
+            mat_p = utils.GetSE2FromPose(p)
+            self._gt_poses.append(np.dot(mat_p, T_rc))
 
         # Initialization
         self.Init()
@@ -57,7 +70,7 @@ class SLAM(object):
         # Estimated poses (se2) from SDF tracker
         self._est_poses = []
         # Last tracked pose
-        self._last_pose = np.identity(3, dtype=np.float32)
+        self._last_pose = self._gt_poses[0]
 
         # Construct an optimizer
         self._optimizer = SdfOptimizer()
@@ -160,7 +173,7 @@ class SLAM(object):
 
     def Run(self):
         scan_data = np.array(self._scans[0][0])
-        pose_mat = utils.GetSE2FromPose(self._poses[0])
+        pose_mat = self._last_pose
         scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
             scan_data)
         self._grid_map.FuseSdf(
@@ -172,7 +185,7 @@ class SLAM(object):
         prev_scan_data = scan_data
         while (t < len(self._times) - self.kDeltaTime):
             logging.info("t: %s", t)
-            logging.info("Ground truth: %s", self._poses[t])
+            logging.info("Ground truth: %s, %s", self._gt_poses[t][0, 2], self._gt_poses[t][1, 2])
             # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
@@ -205,11 +218,11 @@ class SLAM(object):
         for pose in self._est_poses:
             xs.append(pose[0, 2])
             ys.append(pose[1, 2])
-        for gt_pose in self._poses:
-            gt_xs.append(gt_pose[0])
-            gt_ys.append(gt_pose[1])
-        plt.plot(xs, ys, c='g')
-        plt.plot(gt_xs, gt_ys, c='r')
+        for gt_pose in self._gt_poses:
+            gt_xs.append(gt_pose[0, 2])
+            gt_ys.append(gt_pose[1, 2])
+        plt.plot(xs, ys, '-go')
+        plt.plot(gt_xs, gt_ys, '-r+')
         plt.legend()
         if display:
             plt.show(block=True)
@@ -222,7 +235,7 @@ def main(argv):
     logging.basicConfig(format='%(asctime)s,%(msecs)d [%(filename)s:%(lineno)d] %(message)s',
                         datefmt='%Y-%m-%d:%H:%M:%S')
     logging.getLogger().setLevel(logging.INFO)
-    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path)
+    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path, FLAGS.depth_sensor_path)
     slam.Run()
 
 
