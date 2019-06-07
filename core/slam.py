@@ -18,12 +18,16 @@ from grid_map import GridMap
 from optimizer import SdfOptimizer
 
 FLAGS = gflags.FLAGS
-gflags.DEFINE_string("data_path", "../data/robopark.pkl",
+gflags.DEFINE_string("data_path", "../data/robopark_2.pkl",
                      "Path to the data file.")
 gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
                      "Path to the map config file.")
 gflags.DEFINE_string("depth_sensor_path", "../data/sensors/KinectDepth.yaml",
                      "Path to the map config file.")
+gflags.DEFINE_string("output_map_path", "./output_sdf.png",
+                     "Path to the output sdf map file.")
+gflags.DEFINE_string("output_occ_path", "./output_occ.png",
+                     "Path to the output occupancy map file.")
 
 
 class SLAM(object):
@@ -32,8 +36,8 @@ class SLAM(object):
     kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
-    kHuberThr = 15.0
-    kOptStopThr = 0.0018
+    kHuberThr = 10.0
+    kOptStopThr = 0.001
 
     def __init__(self, data_path, map_config_path, depth_sensor_path):
         if not os.path.exists(data_path):
@@ -179,7 +183,8 @@ class SLAM(object):
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
-        self._grid_map.VisualizeSdfMap()
+        # self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
+        # self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -192,9 +197,6 @@ class SLAM(object):
                 scan_data)
             # Track from sdf map
             curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
-            # For test
-            # if t == 21 or t == 22:
-            #     self._grid_map.MapOneScanFromSE2(scan_local_xys, curr_pose)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             # Update the sdf map
@@ -202,13 +204,11 @@ class SLAM(object):
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
             logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
-            # if t == 21 or t == 22:
-            #     self._grid_map.VisualizeSdfMap()
-            #     self._grid_map.VisualizeFreqMap()
             t += self.kDeltaTime
             # exit()
         self.VisualizeOdomAndGt(display=False)
-        # self._grid_map.VisualizeSdfMap()
+        self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
+        self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
 
     def VisualizeOdomAndGt(self, display=True):
         xs = []

@@ -1,9 +1,9 @@
-import yaml
 import os
 import numpy as np
 import math
 import matplotlib.pyplot as plt
 import utils
+import yaml
 plt.ion()
 
 from sklearn.decomposition import PCA
@@ -13,8 +13,9 @@ class GridMap(object):
     kEps = 1e-6  # Truncation numerical error
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
-    kNormalDistThr = 0.1
-    kTruncationThr = 10
+    kNormalDistThr = 0.12
+    kTruncationThr = 8
+    kIsoMapThr = 0.015
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
@@ -52,7 +53,7 @@ class GridMap(object):
             [self._size_y, self._size_x], np.float32)
 
     @staticmethod
-    def _VisualizeOccupancyGrid(grid):
+    def _VisualizeOccupancyGrid(grid, save_path=None):
         """
         grid: binary occupancy map
         """
@@ -60,7 +61,9 @@ class GridMap(object):
         ax = fig.add_subplot(1, 1, 1)
         plt.imshow(grid)
         plt.colorbar()
-        plt.show(block=True)
+        # plt.show(block=True)
+        if save_path is not None:
+            plt.savefig(save_path)
 
     @property
     def sdf_map(self):
@@ -258,8 +261,16 @@ class GridMap(object):
         else:
             self._freq_map[idxs] += 1
 
-    def VisualizeSdfMap(self):
-        self._VisualizeOccupancyGrid(self._sdf_map)
+    def VisualizeSdfMap(self, save_path=None):
+        self._VisualizeOccupancyGrid(self._sdf_map, save_path=save_path)
+
+    def VisualizeOccMap(self, save_path=None):
+        occ_map = np.zeros((self._size_y, self._size_x), dtype=np.float32)
+        for i in range(self._size_y):
+            for j in range(self._size_x):
+                if math.fabs(self._sdf_map[i, j]) < self.kIsoMapThr:
+                    occ_map[i, j] = 1.0
+        self._VisualizeOccupancyGrid(occ_map, save_path=save_path)
 
     def FromMeterToCell(self, scan):
         """
