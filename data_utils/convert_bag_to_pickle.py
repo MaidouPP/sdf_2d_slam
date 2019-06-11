@@ -22,7 +22,8 @@ def _load_bag(bag_filename):
     # Sort by the time the messages were generated rather than the time they
     # made it into the bag, since they sometimes get slightly mixed up
     messages = list(bag.read_messages(['/base_pose_ground_truth', '/scan']))
-    messages.sort(key=lambda m: m.message.header.stamp.secs + m.message.header.stamp.nsecs/1.0e9)
+    messages.sort(key=lambda m: m.message.header.stamp.secs +
+                  m.message.header.stamp.nsecs/1.0e9)
     # Extract the most recent odometry message for each scan
     scans = []
     last_true_pose = None
@@ -42,7 +43,8 @@ def _load_bag(bag_filename):
 
 def _convert_scans(scans):
     """Convert ROS scan messages into (ranges, angle_min, angle_increment) tuples."""
-    return [(scan.ranges, scan.angle_min, scan.angle_increment) for scan in scans]
+    return [(scan.ranges, scan.angle_min, scan.angle_increment, scan.angle_max,
+             scan.range_min, scan.range_max) for scan in scans]
 
 
 def _convert_pose(pose):
