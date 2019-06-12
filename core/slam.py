@@ -25,12 +25,13 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
                      "Path to the map config file.")
 gflags.DEFINE_string("depth_sensor_path", "../data/sensors/KinectDepth.yaml",
                      "Path to the map config file.")
-gflags.DEFINE_string("output_map_path", "./output_sdf.png",
+gflags.DEFINE_string("output_map_path", "../output/output_sdf.png",
                      "Path to the output sdf map file.")
-gflags.DEFINE_string("output_occ_path", "./output_occ.png",
+gflags.DEFINE_string("output_occ_path", "../output/output_occ.png",
                      "Path to the output occupancy map file.")
 gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map.png",
                      "Path to the colored semantic map figrue file.")
+gflags.DEFINE_boolean("use_semantics", True, "Whether use semantic labels for optimization.")
 
 
 class SLAM(object):
@@ -177,6 +178,9 @@ class SLAM(object):
             it += 1
         return last_pose
 
+    def TrackWithSemantics(self, valid_idxs, scan, semantic_labels):
+        return None
+
     def Run(self):
         scan_data = np.array(self._scans[0][0])
         pose_mat = self._last_pose
@@ -196,14 +200,19 @@ class SLAM(object):
             # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
+
             # Track from sdf map and semantic map
             scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[t])
             # Get semantic lables of the scan points
             semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
-            # if t % 7 == 0:
-            #     self._grid_map.MapOneScanFromSE2WithSemantic(scan_local_xys, self._gt_poses[t], semantic_labels)
+            # Test semantic label extraction
+            # self._grid_map.MapOneScanFromSE2WithSemantic(scan_local_xys, self._gt_poses[t], semantic_labels)
 
-            curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            if not FLAGS.use_semantics:
+                curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            else:
+                curr_pose = self.TrackWithSemantics(scan_valid_idxs, scan_local_xys, semantic_labels)
+
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             # Update the sdf map
