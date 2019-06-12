@@ -2,3 +2,5 @@ name: robopark
 resolution: 0.04
 width: 6  # meters
 height: 4.24  # meters
+pixel_width: 1200  # px
+pixel_height: 848  # px

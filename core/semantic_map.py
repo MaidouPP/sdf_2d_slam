@@ -9,13 +9,6 @@ import sys
 import yaml
 
 
-FLAGS = gflags.FLAGS
-gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
-                     "Path to the map config file.")
-gflags.DEFINE_string("map_fig_path", "../data/maps/colored_map.png",
-                     "Path to the colored semantic map figrue file.")
-
-
 class SemanticMap(object):
     """
     Groundtruth semantic map from colored map figure.
@@ -38,7 +31,7 @@ class SemanticMap(object):
             self._size_y = cfg['pixel_height']
 
         # In meters
-        self._res = self._width / self._size_x
+        self._res = float(self._width) / self._size_x
         self._mini_x = - float(self._width) / 2
         self._mini_y = - float(self._height) / 2
         self._maxi_x = float(self._width) / 2
@@ -89,14 +82,14 @@ class SemanticMap(object):
 
     def GetLabelsOfOneScan(self, scan):
         cs, rs = self.FromMeterToCell(scan)
-        return self._semantic_grid[cs, rs]
+        return self._semantic_grid[rs, cs]
+
 
 def main(argv):
-    FLAGS(argv)
     logging.basicConfig(format='%(asctime)s,%(msecs)d [%(filename)s:%(lineno)d] %(message)s',
                         datefmt='%Y-%m-%d:%H:%M:%S')
     logging.getLogger().setLevel(logging.INFO)
-    mp = SemanticMap(FLAGS.map_config_path, FLAGS.map_fig_path)
+    mp = SemanticMap("../data/maps/robopark_map_config.yaml", "../data/maps/colored_map.png")
 
 if __name__ == "__main__":
     main(sys.argv)

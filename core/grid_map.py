@@ -1,7 +1,7 @@
-import os
-import numpy as np
 import math
 import matplotlib.pyplot as plt
+import numpy as np
+import os
 import utils
 import yaml
 plt.ion()
@@ -107,6 +107,26 @@ class GridMap(object):
         scan_w_xs, scan_w_ys = self.FromMeterToCell(scan_w)
 
         occupancy_map[scan_w_ys, scan_w_xs] = 1
+
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        plt.imshow(occupancy_map)
+        plt.show(block=True)
+
+    def MapOneScanFromSE2WithSemantic(self, scan, pose, semantic_labels):
+        """
+        input:
+          scan - laser point coordinates in meters in robot frame
+          pose - SE2
+          semantic_label - semantic labels of the scan points
+        """
+        occupancy_map = np.zeros([self._size_y, self._size_x], np.float32)
+        scan_w = utils.GetScanWorldCoordsFromSE2(scan, pose)
+
+        # Get the cell coordinates of scan hit points
+        scan_w_xs, scan_w_ys = self.FromMeterToCell(scan_w)
+
+        occupancy_map[scan_w_ys, scan_w_xs] = semantic_labels
 
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)

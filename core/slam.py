@@ -16,6 +16,7 @@ import yaml
 
 from grid_map import GridMap
 from optimizer import SdfOptimizer
+from semantic_map import SemanticMap
 
 FLAGS = gflags.FLAGS
 gflags.DEFINE_string("data_path", "../data/robopark_2.pkl",
@@ -28,6 +29,8 @@ gflags.DEFINE_string("output_map_path", "./output_sdf.png",
                      "Path to the output sdf map file.")
 gflags.DEFINE_string("output_occ_path", "./output_occ.png",
                      "Path to the output occupancy map file.")
+gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map.png",
+                     "Path to the colored semantic map figrue file.")
 
 
 class SLAM(object):
@@ -39,18 +42,20 @@ class SLAM(object):
     kHuberThr = 15.0
     kOptStopThr = 0.0015
 
-    def __init__(self, data_path, map_config_path, depth_sensor_path):
+    def __init__(self, data_path, map_config_path, depth_sensor_path, semantic_map_path):
         if not os.path.exists(data_path):
             raise RuntimeError("File {} not found.".format(data_path))
 
         # Construct 2D grid map
-        self._grid_map = GridMap(FLAGS.map_config_path)
+        self._grid_map = GridMap(map_config_path)
+        # Construct 2D semantic map
+        self._semantic_map = SemanticMap(map_config_path, semantic_map_path)
 
         fs = cv2.FileStorage(depth_sensor_path, cv2.FILE_STORAGE_READ)
         T_rc = fs.getNode('Extrinsic').mat()
 
         # Read scan and pose data
-        with open(FLAGS.data_path) as fp:
+        with open(data_path) as fp:
             data = pickle.load(fp)
             self._scans, self._poses, self._times = data
         self._gt_poses = []
@@ -75,9 +80,6 @@ class SLAM(object):
         self._est_poses = []
         # Last tracked pose
         self._last_pose = self._gt_poses[0]
-
-        # Construct an optimizer
-        self._optimizer = SdfOptimizer()
 
     def Init(self):
         self._GetScanSensorInfo()
@@ -193,9 +195,14 @@ class SLAM(object):
             logging.info("Ground truth: %s, %s", self._gt_poses[t][0, 2], self._gt_poses[t][1, 2])
             # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
-            scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
-                scan_data)
-            # Track from sdf map
+            scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
+            # Track from sdf map and semantic map
+            scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[t])
+            # Get semantic lables of the scan points
+            semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
+            # if t % 7 == 0:
+            #     self._grid_map.MapOneScanFromSE2WithSemantic(scan_local_xys, self._gt_poses[t], semantic_labels)
+
             curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
@@ -231,11 +238,11 @@ class SLAM(object):
 
 
 def main(argv):
-    FLAGS(sys.argv)
+    FLAGS(argv)
     logging.basicConfig(format='%(asctime)s,%(msecs)d [%(filename)s:%(lineno)d] %(message)s',
                         datefmt='%Y-%m-%d:%H:%M:%S')
     logging.getLogger().setLevel(logging.INFO)
-    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path, FLAGS.depth_sensor_path)
+    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path, FLAGS.depth_sensor_path, FLAGS.semantic_map_path)
     slam.Run()
 
 
