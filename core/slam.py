@@ -36,8 +36,8 @@ class SLAM(object):
     kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
-    kHuberThr = 10.0
-    kOptStopThr = 0.001
+    kHuberThr = 15.0
+    kOptStopThr = 0.0015
 
     def __init__(self, data_path, map_config_path, depth_sensor_path):
         if not os.path.exists(data_path):

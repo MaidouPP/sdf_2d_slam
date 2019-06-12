@@ -13,9 +13,9 @@ class GridMap(object):
     kEps = 1e-6  # Truncation numerical error
     kNormalWindow = 4  # The left/right neighboring of the beam hit point
     # Range of distance of neighboring points (in meters)
-    kNormalDistThr = 0.12
-    kTruncationThr = 8
-    kIsoMapThr = 0.015
+    kNormalDistThr = 0.1
+    kTruncationThr = 9
+    kIsoMapThr = 0.024
 
     def __init__(self, config_file):
         if not os.path.exists(config_file):
