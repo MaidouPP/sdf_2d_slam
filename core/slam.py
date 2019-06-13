@@ -122,8 +122,6 @@ class SLAM(object):
 
             # Calculate hessian and g term
             opt_num = 0
-            invalid_rs = []
-            invalid_cs = []
             for i in range(scan_cs.shape[0]):
                 if not valid_idxs[i]:
                     continue
@@ -152,12 +150,7 @@ class SLAM(object):
                     sdf_val = self._grid_map.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
                     g += J.transpose() * sdf_val * wt
-                    # print self._grid_map.GetSdfValue(r, c)
                     err_sum += sdf_val * sdf_val
-                else:
-                    invalid_rs.append(int(r))
-                    invalid_cs.append(int(c))
-            # self._grid_map.VisualizePoints(invalid_rs, invalid_cs)
             logging.info("opt_num: %s", opt_num)
             if opt_num == 0:
                 logging.error("opt_num=0!")
@@ -188,9 +181,7 @@ class SLAM(object):
             scan_data)
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
-        # self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
-        # self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
+            self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
 
         t = self.kDeltaTime
         prev_scan_data = scan_data

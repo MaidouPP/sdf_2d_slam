@@ -17,7 +17,7 @@ class GridMap(object):
     kTruncationThr = 9
     kIsoMapThr = 0.024
 
-    def __init__(self, config_file):
+    def __init__(self, config_file, num_semantic_classes=4):
         if not os.path.exists(config_file):
             raise RuntimeError("File {} not found.".format(config_file))
 
@@ -51,6 +51,11 @@ class GridMap(object):
         # Only for test
         self._occupancy_map = np.zeros(
             [self._size_y, self._size_x], np.float32)
+
+        # Semantics
+        self._sdf_map_semantic = np.full([self._size_y, self._size_x, num_semantic_classes],
+                                         self._truncation)
+        self._freq_map_semantic = np.full([self._size_y, self._size_x, num_semantic_classes], 0)
 
     @staticmethod
     def _VisualizeOccupancyGrid(grid, save_path=None):
@@ -181,13 +186,12 @@ class GridMap(object):
         return normals
 
     def FuseSdf(self, scan, scan_valid_idxs, scan_local_xys, pose, min_angle, max_angle, inc_angle,
-                min_range, max_range, scan_dir_vecs, use_plane=False, init=False):
+                min_range, max_range, scan_dir_vecs, semantic_labels=None, use_plane=False, use_semantics=True):
         """
         input:
         - scan: beam depth vector
         - pose: SE2
         """
-        # trans = pose[:2, 2].reshape((2, 1))
         N = self._size_x * self._size_y
         ys, xs = np.meshgrid(range(self._size_y),
                              range(self._size_x), indexing='ij')
@@ -269,17 +273,24 @@ class GridMap(object):
         valid_idxs = np.reshape(valid_idxs, (self._size_y, self._size_x))
         depth_diff = np.reshape(depth_diff, (self._size_y, self._size_x))
 
-        self._UpdateSdfMap(valid_idxs, depth_diff, init=init)
+        self._UpdateSdfMap(valid_idxs, depth_diff)
 
-    def _UpdateSdfMap(self, idxs, depth_diff, init=False):
+        if use_semantics:
+            if semantic_labels is None:
+                raise RuntimeError("No semantic label provided.")
+            self._UpdateSdfMapWithSemantics(valid_idxs, depth_diff, scan_pts_idxs, semantic_labels)
+
+    def _UpdateSdfMap(self, idxs, depth_diff):
         new_freq_map = self._freq_map + 1
         sdf_map = np.divide(np.multiply(
             self._sdf_map, self._freq_map) + depth_diff, new_freq_map)
         self._sdf_map[idxs] = sdf_map[idxs]
-        if init:
-            self._freq_map[idxs] += 1
-        else:
-            self._freq_map[idxs] += 1
+        self._freq_map[idxs] += 1
+
+    def _UpdateSdfMapWithSemantics(self, idxs, depth_diff, scan_pts_idxs, semantic_labels):
+        voxel_labels = semantic_labels[scan_pts_idxs]
+        valid_voxel_labels = voxel_labels[idxs]
+        # TODO: update the corresponding VALID voxel/semantic sdf values and freqs
 
     def VisualizeSdfMap(self, save_path=None):
         self._VisualizeOccupancyGrid(self._sdf_map, save_path=save_path)
