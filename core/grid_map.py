@@ -1,3 +1,4 @@
+from sklearn.decomposition import PCA
 import math
 import matplotlib.pyplot as plt
 import numpy as np
@@ -5,8 +6,6 @@ import os
 import utils
 import yaml
 plt.ion()
-
-from sklearn.decomposition import PCA
 
 
 class GridMap(object):
@@ -53,9 +52,11 @@ class GridMap(object):
             [self._size_y, self._size_x], np.float32)
 
         # Semantics
+        self._num_semantic_classes = num_semantic_classes
         self._sdf_map_semantic = np.full([self._size_y, self._size_x, num_semantic_classes],
                                          self._truncation)
-        self._freq_map_semantic = np.full([self._size_y, self._size_x, num_semantic_classes], 0)
+        self._freq_map_semantic = np.full(
+            [self._size_y, self._size_x, num_semantic_classes], 0)
 
     @staticmethod
     def _VisualizeOccupancyGrid(grid, save_path=None):
@@ -65,8 +66,7 @@ class GridMap(object):
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         plt.imshow(grid)
-        plt.colorbar()
-        # plt.show(block=True)
+        plt.show(block=True)
         if save_path is not None:
             plt.savefig(save_path)
 
@@ -238,7 +238,8 @@ class GridMap(object):
                                                         np.logical_and(grid_local_dist <= max_range,
                                                                        grid_local_dist >= min_range)),
                                          np.logical_and(
-                                             np.logical_and(scan_pts_idxs > 0, scan_pts_idxs < num_scan),
+                                             np.logical_and(
+                                                 scan_pts_idxs > 0, scan_pts_idxs < num_scan),
                                              np.logical_and(grid_local_pts_angle >= min_angle,
                                                             grid_local_pts_angle <= max_angle)))
         # Prepare for validating the indexing (getting rid of too large or too small indexes)
@@ -247,7 +248,8 @@ class GridMap(object):
 
         # Calculate normal vectors of the current scan
         if use_plane:
-            normals = self.CalcNormalVecOfAScan(scan_valid_idxs, scan_local_xys, scan_dir_vecs)
+            normals = self.CalcNormalVecOfAScan(
+                scan_valid_idxs, scan_local_xys, scan_dir_vecs)
 
         # Calculate depth update for valid voxels
         depth_val = np.zeros(N)
@@ -260,7 +262,8 @@ class GridMap(object):
             p2p_dist_sign = np.sign(p2p_dist[0, :])
             # p2p_dist = depth_val - grid_local_dist
             # tmp = scan_dir_vecs[:, scan_pts_idxs] * p2p_dist
-            depth_diff = np.multiply(p2p_dist_sign, np.fabs(np.dot(normals[scan_pts_idxs], p2p_dist).diagonal()))
+            depth_diff = np.multiply(p2p_dist_sign, np.fabs(
+                np.dot(normals[scan_pts_idxs], p2p_dist).diagonal()))
         else:
             depth_diff = depth_val - grid_local_dist
 
@@ -278,7 +281,8 @@ class GridMap(object):
         if use_semantics:
             if semantic_labels is None:
                 raise RuntimeError("No semantic label provided.")
-            self._UpdateSdfMapWithSemantics(valid_idxs, depth_diff, scan_pts_idxs, semantic_labels)
+            self._UpdateSdfMapWithSemantics(
+                valid_idxs, depth_diff, scan_pts_idxs, semantic_labels)
 
     def _UpdateSdfMap(self, idxs, depth_diff):
         new_freq_map = self._freq_map + 1
@@ -288,9 +292,20 @@ class GridMap(object):
         self._freq_map[idxs] += 1
 
     def _UpdateSdfMapWithSemantics(self, idxs, depth_diff, scan_pts_idxs, semantic_labels):
-        voxel_labels = semantic_labels[scan_pts_idxs]
-        valid_voxel_labels = voxel_labels[idxs]
-        # TODO: update the corresponding VALID voxel/semantic sdf values and freqs
+        voxel_labels = semantic_labels[scan_pts_idxs].reshape((self._size_y, self._size_x))
+        # rs, cs = np.ogrid[:self._size_y, :self._size_x]
+        # new_freq_map = self._freq_map_semantic[rs, cs, voxel_labels] + 1
+        # new_sdf_map = np.divide(np.multiply(
+        #     self._sdf_map_semantic[rs, cs, voxel_labels], self._freq_map_semantic[rs, cs, voxel_labels]) + depth_diff, new_freq_map)
+
+        # TODO (shixin): Stupid for-loop, need to substitute with better numpy operation
+        for r in range(self._size_y):
+            for c in range(self._size_x):
+                if idxs[r, c]:
+                    self._sdf_map_semantic[r, c, voxel_labels[r, c]] = float(self._freq_map_semantic[r, c, voxel_labels[r, c]] * \
+                                                                       self._sdf_map_semantic[r, c, voxel_labels[r, c]] + depth_diff[r, c]) / \
+                                                                       (self._freq_map_semantic[r, c, voxel_labels[r, c]] + 1)
+                    self._freq_map_semantic[r, c, voxel_labels[r, c]] = self._freq_map_semantic[r, c, voxel_labels[r, c]] + 1
 
     def VisualizeSdfMap(self, save_path=None):
         self._VisualizeOccupancyGrid(self._sdf_map, save_path=save_path)
@@ -362,3 +377,10 @@ class GridMap(object):
 
     def VisualizeFreqMap(self):
         self._VisualizeOccupancyGrid(self._freq_map)
+
+    def VisualizeSemanticMap(self):
+        valid_idxs = self._freq_map > 0
+        valid_idxs = valid_idxs.astype(dtype=np.int8)
+        semantics = np.argmax(self._freq_map_semantic, axis=2)
+        grid = np.multiply(valid_idxs, semantics)
+        self._VisualizeOccupancyGrid(grid * 50)
