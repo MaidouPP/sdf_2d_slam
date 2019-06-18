@@ -75,7 +75,7 @@ class GridMap(object):
         return self._sdf_map
 
     @property
-    def weight_map(self):
+    def freq_map(self):
         return self._freq_map
 
     def GetSdfValue(self, r, c):

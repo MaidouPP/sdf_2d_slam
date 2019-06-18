@@ -145,7 +145,7 @@ class SLAM(object):
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    freq = float(self._grid_map.weight_map[int(r), int(c)])
+                    freq = float(self._grid_map.freq_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
                     sdf_val = self._grid_map.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
@@ -212,7 +212,7 @@ class SLAM(object):
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    freq = float(self._grid_map.weight_map[int(r), int(c)])
+                    freq = float(self._grid_map.freq_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
                     sdf_val = self._grid_map.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
