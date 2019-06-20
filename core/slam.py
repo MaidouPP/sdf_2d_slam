@@ -42,6 +42,7 @@ class SLAM(object):
     kEpsOfTrans = 1e-3
     kHuberThr = 15.0
     kOptStopThr = 0.0015
+    kLambda = 0.5  # Semantic error term coefficient
 
     def __init__(self, data_path, map_config_path, depth_sensor_path, semantic_map_path):
         if not os.path.exists(data_path):
@@ -189,11 +190,13 @@ class SLAM(object):
 
             # Calculate hessian and g term
             opt_num = 0
+            sem_num = 0
             for i in range(scan_cs.shape[0]):
                 if not valid_idxs[i]:
                     continue
                 c = scan_cs[i]
                 r = scan_rs[i]
+                cls = semantic_labels[i]
                 # World x and y
                 x_w = scan_w[0, i]
                 y_w = scan_w[1, i]
@@ -218,10 +221,31 @@ class SLAM(object):
                     H += np.dot(J.transpose(), J) * wt
                     g += J.transpose() * sdf_val * wt
                     err_sum += sdf_val * sdf_val
+
+                    if self._grid_map.HasValidGradientSemantic(r, c, cls):
+                        sem_num = sem_num + 1
+                        # dD / dx
+                        J_sem_d_x = self._grid_map.CalcSdfGradientSemantic(r, c, cls)
+                        # dx / d\xi
+                        J_sem_x_xi = np.zeros((2, 3), dtype=np.float32)
+                        J_sem_x_xi[0, 0] = J_sem_x_xi[1, 1] = 1
+                        J_sem_x_xi[0, 2] = -y_w
+                        J_sem_x_xi[1, 2] = x_w
+                        # Jacobian J_d_xi of shape (1, 3)
+                        J_sem = np.dot(J_sem_d_x, J_sem_x_xi)
+                        freq_sem = float(self._grid_map.GetFreqSemantic(int(r), int(c), cls))
+                        wt_sem = 1.0 if freq_sem >= self.kHuberThr else freq_sem / self.kHuberThr
+                        sdf_val_sem = self._grid_map.GetSdfValueSemantic(r, c, cls)
+                        H += np.dot(J_sem.transpose(), J_sem) * wt_sem * self.kLambda
+                        g += J_sem.transpose() * sdf_val_sem * wt_sem * self.kLambda
+                        err_sum += self.kLambda * wt * sdf_val_sem * sdf_val_sem
+
             logging.info("opt_num: %s", opt_num)
+            logging.info("sem_num: %s", opt_num)
             if opt_num == 0:
                 logging.error("opt_num=0!")
                 break
+
             err_metric = err_sum / opt_num
             logging.info("   error term: %s ", err_metric)
             try:
@@ -269,8 +293,8 @@ class SLAM(object):
 
             # Test semantic label extraction
             # self._grid_map.MapOneScanFromSE2WithSemantic(scan_local_xys, self._gt_poses[t], semantic_labels)
-            if t % 20 == 0:
-                self._grid_map.VisualizeSemanticMap()
+            # if t % 20 == 0:
+            #     self._grid_map.VisualizeSemanticMap()
 
             if not FLAGS.use_semantics:
                 curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
@@ -308,7 +332,7 @@ class SLAM(object):
         if display:
             plt.show(block=True)
         else:
-            plt.savefig("odom.png")
+            plt.savefig("../output/odom.png")
 
 
 def main(argv):

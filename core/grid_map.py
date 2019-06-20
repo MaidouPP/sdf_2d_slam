@@ -66,7 +66,6 @@ class GridMap(object):
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         plt.imshow(grid)
-        plt.show(block=True)
         if save_path is not None:
             plt.savefig(save_path)
 
@@ -80,6 +79,12 @@ class GridMap(object):
 
     def GetSdfValue(self, r, c):
         return self.InterpolateSdfValue(r, c)
+
+    def GetSdfValueSemantic(self, r, c, cls):
+        return self.InterpolateSdfValueSemantic(r, c, cls)
+
+    def GetFreqSemantic(self, r, c, cls):
+        return self._freq_map_semantic[r, c, cls]
 
     def MapOneScan(self, scan, pose):
         """
@@ -158,6 +163,28 @@ class GridMap(object):
                     w = 1.0 / volume
                     w_sum += w
                     sdf_sum += w * self._sdf_map[r_curr, c_curr]
+        return sdf_sum / w_sum
+
+    def InterpolateSdfValueSemantic(self, r, c, cls):
+        # r and c are float numbers, indicating the index of the cell
+        w_sum = 0.0
+        sdf_sum = 0.0
+        for r_offset in [-1.0, 0.0, 1.0]:
+            for c_offset in [-1.0, 0.0, 1.0]:
+                r_curr = int(int(r) + r_offset)
+                c_curr = int(int(c) + c_offset)
+                # Calculate the coordinate distance (in cells)
+                r_dist = float(np.fabs(r_curr + 0.5 - r))
+                c_dist = float(np.fabs(c_curr + 0.5 - c))
+                if r_dist > 1.0 or c_dist > 1.0:
+                    continue
+                volume = r_dist * c_dist
+                if self._freq_map_semantic[r_curr, c_curr, cls] > 0:
+                    if volume < 1e-7:
+                        return self._sdf_map_semantic[r_curr, c_curr, cls]
+                    w = 1.0 / volume
+                    w_sum += w
+                    sdf_sum += w * self._sdf_map_semantic[r_curr, c_curr, cls]
         return sdf_sum / w_sum
 
     def CalcNormalVecOfAScan(self, scan_valid_idxs, scan_local_xys, scan_dir_vecs):
@@ -315,7 +342,7 @@ class GridMap(object):
         for i in range(self._size_y):
             for j in range(self._size_x):
                 if math.fabs(self._sdf_map[i, j]) < self.kIsoMapThr:
-                    occ_map[i, j] = 1.0
+                    occ_map[i, j] = 1.0 * np.argmax(self._freq_map_semantic[i, j]) * 50
         self._VisualizeOccupancyGrid(occ_map, save_path=save_path)
 
     def FromMeterToCell(self, scan):
@@ -349,6 +376,13 @@ class GridMap(object):
         else:
             return True
 
+    def _IsValidSemantic(self, r, c, cls):
+        # Assume (r, c) is valid coordinate
+        if self._freq_map_semantic[r, c, cls] < 1:
+            return False
+        else:
+            return True
+
     def HasValidGradient(self, r, c):
         # Check boundary
         if r-1 < 0 or c-1 < 0 or r+1 > self._size_y - 1 or c+1 > self._size_x - 1:
@@ -360,12 +394,33 @@ class GridMap(object):
         else:
             return False
 
+    def HasValidGradientSemantic(self, r, c, cls):
+        # Check boundary
+        if r-1 < 0 or c-1 < 0 or r+1 > self._size_y - 1 or c+1 > self._size_x - 1:
+            return False
+
+        if self._IsValidSemantic(int(r-1), int(c), cls) and self._IsValidSemantic(int(r+1), int(c), cls) and \
+           self._IsValidSemantic(int(r), int(c-1), cls) and self._IsValidSemantic(int(r), int(c+1), cls):
+            return True
+        else:
+            return False
+
     def CalcSdfGradient(self, r, c):
         # User must already check the validity of (r, c)
         g_x = 0.5 * (self.InterpolateSdfValue(r, c+1.0) -
                      self.InterpolateSdfValue(r, c-1.0)) / self._res
         g_y = 0.5 * (self.InterpolateSdfValue(r-1.0, c) -
                      self.InterpolateSdfValue(r+1.0, c)) / self._res
+        g = np.array([g_x, g_y], dtype=np.float32)
+        g = np.reshape(g, [1, 2])
+        return g
+
+    def CalcSdfGradientSemantic(self, r, c, cls):
+        # User must already check the validity of (r, c)
+        g_x = 0.5 * (self.InterpolateSdfValueSemantic(r, c+1.0, cls) -
+                     self.InterpolateSdfValueSemantic(r, c-1.0, cls)) / self._res
+        g_y = 0.5 * (self.InterpolateSdfValueSemantic(r-1.0, c, cls) -
+                     self.InterpolateSdfValueSemantic(r+1.0, c, cls)) / self._res
         g = np.array([g_x, g_y], dtype=np.float32)
         g = np.reshape(g, [1, 2])
         return g
