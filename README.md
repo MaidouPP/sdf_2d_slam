@@ -9,5 +9,5 @@
 
 ## Semantics Incorporation
 - [x] Augment laser scan with semantics labels
-- [ ] Build semantic map from sdf tracker
-- [ ] Implement semantics-incorporated tracking optimization
+- [x] Build semantic map from sdf tracker
+- [x] Implement semantics-incorporated tracking optimization

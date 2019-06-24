@@ -29,7 +29,7 @@ gflags.DEFINE_string("output_map_path", "../output/output_sdf.png",
                      "Path to the output sdf map file.")
 gflags.DEFINE_string("output_occ_path", "../output/output_occ.png",
                      "Path to the output occupancy map file.")
-gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map.png",
+gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map_1.png",
                      "Path to the colored semantic map figrue file.")
 gflags.DEFINE_boolean("use_semantics", True, "Whether use semantic labels for optimization.")
 
