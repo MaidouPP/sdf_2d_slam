@@ -16,6 +16,7 @@ import yaml
 
 from grid_map import GridMap
 from optimizer import SdfOptimizer
+from semantic_map import SemanticMap
 
 FLAGS = gflags.FLAGS
 gflags.DEFINE_string("data_path", "../data/robopark_2.pkl",
@@ -24,10 +25,13 @@ gflags.DEFINE_string("map_config_path", "../data/maps/robopark_map_config.yaml",
                      "Path to the map config file.")
 gflags.DEFINE_string("depth_sensor_path", "../data/sensors/KinectDepth.yaml",
                      "Path to the map config file.")
-gflags.DEFINE_string("output_map_path", "./output_sdf.png",
+gflags.DEFINE_string("output_map_path", "../output/output_sdf.png",
                      "Path to the output sdf map file.")
-gflags.DEFINE_string("output_occ_path", "./output_occ.png",
+gflags.DEFINE_string("output_occ_path", "../output/output_occ.png",
                      "Path to the output occupancy map file.")
+gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map_1.png",
+                     "Path to the colored semantic map figrue file.")
+gflags.DEFINE_boolean("use_semantics", True, "Whether use semantic labels for optimization.")
 
 
 class SLAM(object):
@@ -36,21 +40,24 @@ class SLAM(object):
     kOptMaxIters = 10
     kEpsOfYaw = 1e-3
     kEpsOfTrans = 1e-3
-    kHuberThr = 10.0
-    kOptStopThr = 0.001
+    kHuberThr = 15.0
+    kOptStopThr = 0.0015
+    kLambda = 0.5  # Semantic error term coefficient
 
-    def __init__(self, data_path, map_config_path, depth_sensor_path):
+    def __init__(self, data_path, map_config_path, depth_sensor_path, semantic_map_path):
         if not os.path.exists(data_path):
             raise RuntimeError("File {} not found.".format(data_path))
 
         # Construct 2D grid map
-        self._grid_map = GridMap(FLAGS.map_config_path)
+        self._grid_map = GridMap(map_config_path)
+        # Construct 2D semantic map
+        self._semantic_map = SemanticMap(map_config_path, semantic_map_path)
 
         fs = cv2.FileStorage(depth_sensor_path, cv2.FILE_STORAGE_READ)
         T_rc = fs.getNode('Extrinsic').mat()
 
         # Read scan and pose data
-        with open(FLAGS.data_path) as fp:
+        with open(data_path) as fp:
             data = pickle.load(fp)
             self._scans, self._poses, self._times = data
         self._gt_poses = []
@@ -75,9 +82,6 @@ class SLAM(object):
         self._est_poses = []
         # Last tracked pose
         self._last_pose = self._gt_poses[0]
-
-        # Construct an optimizer
-        self._optimizer = SdfOptimizer()
 
     def Init(self):
         self._GetScanSensorInfo()
@@ -119,8 +123,6 @@ class SLAM(object):
 
             # Calculate hessian and g term
             opt_num = 0
-            invalid_rs = []
-            invalid_cs = []
             for i in range(scan_cs.shape[0]):
                 if not valid_idxs[i]:
                     continue
@@ -144,21 +146,106 @@ class SLAM(object):
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    freq = float(self._grid_map.weight_map[int(r), int(c)])
+                    freq = float(self._grid_map.freq_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
                     sdf_val = self._grid_map.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
                     g += J.transpose() * sdf_val * wt
-                    # print self._grid_map.GetSdfValue(r, c)
                     err_sum += sdf_val * sdf_val
-                else:
-                    invalid_rs.append(int(r))
-                    invalid_cs.append(int(c))
-            # self._grid_map.VisualizePoints(invalid_rs, invalid_cs)
             logging.info("opt_num: %s", opt_num)
             if opt_num == 0:
                 logging.error("opt_num=0!")
                 break
+            err_metric = err_sum / opt_num
+            logging.info("   error term: %s ", err_metric)
+            try:
+                xi = -np.dot(np.linalg.inv(H), g)
+            except np.linalg.LinAlgError as err:
+                logging.info("Hessian matrix not invertible.")
+                xi = np.zeros((3, 1), dtype=np.float32)
+
+            # Check if xi is too small so that we can stop optimization
+            if np.abs(xi[2]) < self.kEpsOfYaw and np.linalg.norm(xi[:2]) < self.kEpsOfTrans or \
+               err_metric < self.kOptStopThr:
+                break
+            last_pose = np.dot(utils.ExpFromSe2(xi), last_pose)
+            it += 1
+        return last_pose
+
+    def TrackWithSemantics(self, valid_idxs, scan, semantic_labels):
+        # Perturbation xi that we are trying to optimize
+        xi = np.array([0, 0, 0], dtype=np.float32)
+        it = 0
+        # last_pose is a SE2
+        last_pose = self._last_pose
+
+        while it < self.kOptMaxIters:
+            # World scan coordinates
+            scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
+            scan_cs, scan_rs = self._grid_map.FromMeterToCellNoRound(scan_w)
+            # Hessian
+            H = np.zeros((3, 3), dtype=np.float32)
+            g = np.zeros((3, 1), dtype=np.float32)
+            err_sum = 0.0
+
+            # Calculate hessian and g term
+            opt_num = 0
+            sem_num = 0
+            for i in range(scan_cs.shape[0]):
+                if not valid_idxs[i]:
+                    continue
+                c = scan_cs[i]
+                r = scan_rs[i]
+                cls = semantic_labels[i]
+                # World x and y
+                x_w = scan_w[0, i]
+                y_w = scan_w[1, i]
+                # Local x and y
+                x_l = scan[0, i]
+                y_l = scan[1, i]
+                if self._grid_map.HasValidGradient(r, c):
+                    opt_num += 1
+                    # dD / dx
+                    J_d_x = self._grid_map.CalcSdfGradient(r, c)
+                    # dx / d\xi
+                    J_x_xi = np.zeros((2, 3), dtype=np.float32)
+                    J_x_xi[0, 0] = J_x_xi[1, 1] = 1
+                    J_x_xi[0, 2] = -y_w
+                    J_x_xi[1, 2] = x_w
+                    # Jacobian J_d_xi of shape (1, 3)
+                    J = np.dot(J_d_x, J_x_xi)
+                    # Gauss-Newton approximation to Hessian
+                    freq = float(self._grid_map.freq_map[int(r), int(c)])
+                    wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
+                    sdf_val = self._grid_map.GetSdfValue(r, c)
+                    H += np.dot(J.transpose(), J) * wt
+                    g += J.transpose() * sdf_val * wt
+                    err_sum += sdf_val * sdf_val
+
+                    if self._grid_map.HasValidGradientSemantic(r, c, cls):
+                        sem_num = sem_num + 1
+                        # dD / dx
+                        J_sem_d_x = self._grid_map.CalcSdfGradientSemantic(r, c, cls)
+                        # dx / d\xi
+                        J_sem_x_xi = np.zeros((2, 3), dtype=np.float32)
+                        J_sem_x_xi[0, 0] = J_sem_x_xi[1, 1] = 1
+                        J_sem_x_xi[0, 2] = -y_w
+                        J_sem_x_xi[1, 2] = x_w
+                        # Jacobian J_d_xi of shape (1, 3)
+                        J_sem = np.dot(J_sem_d_x, J_sem_x_xi)
+                        freq_sem = float(self._grid_map.GetFreqSemantic(int(r), int(c), cls))
+                        wt_sem = 1.0 if freq_sem >= self.kHuberThr else freq_sem / self.kHuberThr
+                        sdf_val_sem = self._grid_map.GetSdfValueSemantic(r, c, cls)
+                        H += np.dot(J_sem.transpose(), J_sem) * wt_sem * self.kLambda
+                        g += J_sem.transpose() * sdf_val_sem * wt_sem * self.kLambda
+                        err_sum += self.kLambda * wt * sdf_val_sem * sdf_val_sem
+
+            logging.info("opt_num: %s", opt_num)
+            logging.info("sem_num: %s", opt_num)
+            if opt_num == 0:
+                logging.error("opt_num=0!")
+                break
+
             err_metric = err_sum / opt_num
             logging.info("   error term: %s ", err_metric)
             try:
@@ -180,11 +267,15 @@ class SLAM(object):
         pose_mat = self._last_pose
         scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
             scan_data)
+        # Track from sdf map and semantic map
+        scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[0])
+        # Get semantic lables of the scan points
+        semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
+
         self._grid_map.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
-            self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
-        # self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
-        # self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
+            self._min_range, self._max_range, self._scan_dir_vecs, semantic_labels=semantic_labels, use_plane=True,
+            use_semantics=FLAGS.use_semantics)
 
         t = self.kDeltaTime
         prev_scan_data = scan_data
@@ -193,16 +284,30 @@ class SLAM(object):
             logging.info("Ground truth: %s, %s", self._gt_poses[t][0, 2], self._gt_poses[t][1, 2])
             # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
-            scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
-                scan_data)
-            # Track from sdf map
-            curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
+
+            # Track from sdf map and semantic map
+            scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[t])
+            # Get semantic lables of the scan points
+            semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
+
+            # Test semantic label extraction
+            # self._grid_map.MapOneScanFromSE2WithSemantic(scan_local_xys, self._gt_poses[t], semantic_labels)
+            # if t % 20 == 0:
+            #     self._grid_map.VisualizeSemanticMap()
+
+            if not FLAGS.use_semantics:
+                curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            else:
+                curr_pose = self.TrackWithSemantics(scan_valid_idxs, scan_local_xys, semantic_labels)
+
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
             # Update the sdf map
             self._grid_map.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
-                self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
+                self._min_range, self._max_range, self._scan_dir_vecs, semantic_labels=semantic_labels, use_plane=True,
+                use_semantics=FLAGS.use_semantics)
             logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
             t += self.kDeltaTime
             # exit()
@@ -227,15 +332,15 @@ class SLAM(object):
         if display:
             plt.show(block=True)
         else:
-            plt.savefig("odom.png")
+            plt.savefig("../output/odom.png")
 
 
 def main(argv):
-    FLAGS(sys.argv)
+    FLAGS(argv)
     logging.basicConfig(format='%(asctime)s,%(msecs)d [%(filename)s:%(lineno)d] %(message)s',
                         datefmt='%Y-%m-%d:%H:%M:%S')
     logging.getLogger().setLevel(logging.INFO)
-    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path, FLAGS.depth_sensor_path)
+    slam = SLAM(FLAGS.data_path, FLAGS.map_config_path, FLAGS.depth_sensor_path, FLAGS.semantic_map_path)
     slam.Run()
 
 

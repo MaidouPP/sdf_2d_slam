@@ -33,23 +33,6 @@ def LogFromSE2(mat):
     print u
     return np.hstack(u, yaw)
 
-# def ExpFromSe2(xi):
-#     # Need to verify this function!!!!
-#     assert(xi.shape[0] == 3)
-#     mat = np.identity(3, dtype=np.float32)
-#     # Rotation
-#     yaw = xi[2]
-#     mat[0, 0] = np.cos(yaw)
-#     mat[0, 1] = -np.sin(yaw)
-#     mat[1, 0] = np.sin(yaw)
-#     mat[1, 1] = np.cos(yaw)
-#     # Translation
-#     a = float(np.sin(yaw) / yaw)
-#     b = float((1 - np.cos(yaw)) / yaw)
-#     tmp = np.array([[a, -b], [b, a]], dtype=np.float32)
-#     mat[:2, 2] = np.dot(tmp, xi[:2]).reshape((2,))
-#     return mat
-
 def ExpFromSe2(xi):
     assert(xi.shape[0] == 3)
     yaw = xi[2]
@@ -80,43 +63,3 @@ def GetScanWorldCoordsFromPose(scan, pose):
     """
     mat = GetSE2FromPose(pose)
     return GetScanWorldCoordsFromSE2(scan, mat)
-
-def Bresenham2D(sx, sy, ex, ey):
-    sx = int(round(sx))
-    sy = int(round(sy))
-    ex = int(round(ex))
-    ey = int(round(ey))
-    dx = abs(ex - sx)
-    dy = abs(ey - sy)
-
-    steep = abs(dy) > abs(dx)
-    if steep:
-        dx, dy = dy, dx
-
-    if dy == 0:
-        q = np.zeros((dx + 1, 1))
-    else:
-        q = np.append(0, np.greater_equal(np.diff(
-            np.mod(np.arange(np.floor(dx/2),
-                             -dy * dx + np.floor(dx / 2) - 1, -dy), dx)), 0))
-    if steep:
-        if sy <= ey:
-            y = np.arange(sy, ey + 1)
-        else:
-            y = np.arange(sy, ey - 1, -1)
-        if sx <= ex:
-            x = sx + np.cumsum(q)
-        else:
-            x = sx - np.cumsum(q)
-    else:
-        if sx <= ex:
-            x = np.arange(sx, ex + 1)
-        else:
-            x = np.arange(sx, ex - 1, -1)
-        if sy <= ey:
-            y = sy + np.cumsum(q)
-        else:
-            y = sy - np.cumsum(q)
-    ret = np.vstack((x, y))
-    ret = ret.astype(int)
-    return ret
