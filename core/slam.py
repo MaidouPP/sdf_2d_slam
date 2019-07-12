@@ -32,7 +32,7 @@ gflags.DEFINE_string("output_occ_path", "../output/output_occ.png",
 gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map_1.png",
                      "Path to the colored semantic map figrue file.")
 gflags.DEFINE_boolean("use_semantics", True, "Whether use semantic labels for optimization.")
-gflags.DEFINE_integer("submap_frames", 20, "Number of frames in one submap.")
+gflags.DEFINE_integer("submap_frames", 200, "Number of frames in one submap.")
 
 
 class SLAM(object):
@@ -43,7 +43,7 @@ class SLAM(object):
     kEpsOfTrans = 1e-3
     kHuberThr = 15.0
     kOptStopThr = 0.0015
-    kLambda = 0.5  # Semantic error term coefficient
+    kLambda = 1.5  # Semantic error term coefficient
 
     def __init__(self, data_path, map_config_path, depth_sensor_path, semantic_map_path):
         if not os.path.exists(data_path):
@@ -241,10 +241,10 @@ class SLAM(object):
                         sdf_val_sem = self._grid_map_local.GetSdfValueSemantic(r, c, cls)
                         H += np.dot(J_sem.transpose(), J_sem) * wt_sem * self.kLambda
                         g += J_sem.transpose() * sdf_val_sem * wt_sem * self.kLambda
-                        err_sum += self.kLambda * wt * sdf_val_sem * sdf_val_sem
+                        err_sum += self.kLambda * wt_sem * sdf_val_sem * sdf_val_sem
 
             logging.info("opt_num: %s", opt_num)
-            logging.info("sem_num: %s", opt_num)
+            logging.info("sem_num: %s", sem_num)
             if opt_num == 0:
                 logging.error("opt_num=0!")
                 break
@@ -273,8 +273,7 @@ class SLAM(object):
         # Track from sdf map and semantic map
         scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[0])
         # Get semantic lables of the scan points
-        if FLAGS.use_semantics:
-            semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
+        semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
 
         self._grid_map_local.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
