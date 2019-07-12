@@ -32,6 +32,7 @@ gflags.DEFINE_string("output_occ_path", "../output/output_occ.png",
 gflags.DEFINE_string("semantic_map_path", "../data/maps/colored_map_1.png",
                      "Path to the colored semantic map figrue file.")
 gflags.DEFINE_boolean("use_semantics", True, "Whether use semantic labels for optimization.")
+gflags.DEFINE_integer("submap_frames", 20, "Number of frames in one submap.")
 
 
 class SLAM(object):
@@ -50,6 +51,8 @@ class SLAM(object):
 
         # Construct 2D grid map
         self._grid_map = GridMap(map_config_path)
+        # Construct 2D local grid map
+        self._grid_map_local = GridMap(map_config_path)
         # Construct 2D semantic map
         self._semantic_map = SemanticMap(map_config_path, semantic_map_path)
 
@@ -115,7 +118,7 @@ class SLAM(object):
         while it < self.kOptMaxIters:
             # World scan coordinates
             scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
-            scan_cs, scan_rs = self._grid_map.FromMeterToCellNoRound(scan_w)
+            scan_cs, scan_rs = self._grid_map_local.FromMeterToCellNoRound(scan_w)
             # Hessian
             H = np.zeros((3, 3), dtype=np.float32)
             g = np.zeros((3, 1), dtype=np.float32)
@@ -134,10 +137,10 @@ class SLAM(object):
                 # Local x and y
                 x_l = scan[0, i]
                 y_l = scan[1, i]
-                if self._grid_map.HasValidGradient(r, c):
+                if self._grid_map_local.HasValidGradient(r, c):
                     opt_num += 1
                     # dD / dx
-                    J_d_x = self._grid_map.CalcSdfGradient(r, c)
+                    J_d_x = self._grid_map_local.CalcSdfGradient(r, c)
                     # dx / d\xi
                     J_x_xi = np.zeros((2, 3), dtype=np.float32)
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
@@ -146,9 +149,9 @@ class SLAM(object):
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    freq = float(self._grid_map.freq_map[int(r), int(c)])
+                    freq = float(self._grid_map_local.freq_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
-                    sdf_val = self._grid_map.GetSdfValue(r, c)
+                    sdf_val = self._grid_map_local.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
                     g += J.transpose() * sdf_val * wt
                     err_sum += sdf_val * sdf_val
@@ -182,7 +185,7 @@ class SLAM(object):
         while it < self.kOptMaxIters:
             # World scan coordinates
             scan_w = utils.GetScanWorldCoordsFromSE2(scan, last_pose)
-            scan_cs, scan_rs = self._grid_map.FromMeterToCellNoRound(scan_w)
+            scan_cs, scan_rs = self._grid_map_local.FromMeterToCellNoRound(scan_w)
             # Hessian
             H = np.zeros((3, 3), dtype=np.float32)
             g = np.zeros((3, 1), dtype=np.float32)
@@ -203,10 +206,10 @@ class SLAM(object):
                 # Local x and y
                 x_l = scan[0, i]
                 y_l = scan[1, i]
-                if self._grid_map.HasValidGradient(r, c):
+                if self._grid_map_local.HasValidGradient(r, c):
                     opt_num += 1
                     # dD / dx
-                    J_d_x = self._grid_map.CalcSdfGradient(r, c)
+                    J_d_x = self._grid_map_local.CalcSdfGradient(r, c)
                     # dx / d\xi
                     J_x_xi = np.zeros((2, 3), dtype=np.float32)
                     J_x_xi[0, 0] = J_x_xi[1, 1] = 1
@@ -215,17 +218,17 @@ class SLAM(object):
                     # Jacobian J_d_xi of shape (1, 3)
                     J = np.dot(J_d_x, J_x_xi)
                     # Gauss-Newton approximation to Hessian
-                    freq = float(self._grid_map.freq_map[int(r), int(c)])
+                    freq = float(self._grid_map_local.freq_map[int(r), int(c)])
                     wt = 1.0 if freq >= self.kHuberThr else freq / self.kHuberThr
-                    sdf_val = self._grid_map.GetSdfValue(r, c)
+                    sdf_val = self._grid_map_local.GetSdfValue(r, c)
                     H += np.dot(J.transpose(), J) * wt
                     g += J.transpose() * sdf_val * wt
                     err_sum += sdf_val * sdf_val
 
-                    if self._grid_map.HasValidGradientSemantic(r, c, cls):
+                    if self._grid_map_local.HasValidGradientSemantic(r, c, cls):
                         sem_num = sem_num + 1
                         # dD / dx
-                        J_sem_d_x = self._grid_map.CalcSdfGradientSemantic(r, c, cls)
+                        J_sem_d_x = self._grid_map_local.CalcSdfGradientSemantic(r, c, cls)
                         # dx / d\xi
                         J_sem_x_xi = np.zeros((2, 3), dtype=np.float32)
                         J_sem_x_xi[0, 0] = J_sem_x_xi[1, 1] = 1
@@ -233,9 +236,9 @@ class SLAM(object):
                         J_sem_x_xi[1, 2] = x_w
                         # Jacobian J_d_xi of shape (1, 3)
                         J_sem = np.dot(J_sem_d_x, J_sem_x_xi)
-                        freq_sem = float(self._grid_map.GetFreqSemantic(int(r), int(c), cls))
+                        freq_sem = float(self._grid_map_local.GetFreqSemantic(int(r), int(c), cls))
                         wt_sem = 1.0 if freq_sem >= self.kHuberThr else freq_sem / self.kHuberThr
-                        sdf_val_sem = self._grid_map.GetSdfValueSemantic(r, c, cls)
+                        sdf_val_sem = self._grid_map_local.GetSdfValueSemantic(r, c, cls)
                         H += np.dot(J_sem.transpose(), J_sem) * wt_sem * self.kLambda
                         g += J_sem.transpose() * sdf_val_sem * wt_sem * self.kLambda
                         err_sum += self.kLambda * wt * sdf_val_sem * sdf_val_sem
@@ -270,9 +273,10 @@ class SLAM(object):
         # Track from sdf map and semantic map
         scan_gt_world_xys = utils.GetScanWorldCoordsFromSE2(scan_local_xys, self._gt_poses[0])
         # Get semantic lables of the scan points
-        semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
+        if FLAGS.use_semantics:
+            semantic_labels = self._semantic_map.GetLabelsOfOneScan(scan_gt_world_xys)
 
-        self._grid_map.FuseSdf(
+        self._grid_map_local.FuseSdf(
             scan_data, scan_valid_idxs, scan_local_xys, pose_mat, self._min_angle, self._max_angle, self._res_angle,
             self._min_range, self._max_range, self._scan_dir_vecs, semantic_labels=semantic_labels, use_plane=True,
             use_semantics=FLAGS.use_semantics)
@@ -282,6 +286,7 @@ class SLAM(object):
         while (t < len(self._times) - self.kDeltaTime):
             logging.info("t: %s", t)
             logging.info("Ground truth: %s, %s", self._gt_poses[t][0, 2], self._gt_poses[t][1, 2])
+
             # Get scan data in local xy coordinate
             scan_data = np.array(self._scans[t][0])
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(scan_data)
@@ -303,14 +308,23 @@ class SLAM(object):
 
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
-            # Update the sdf map
-            self._grid_map.FuseSdf(
+            if t % FLAGS.submap_frames == 0:
+                logging.info("One submap created.")
+                # Update global map with submap
+                self._grid_map.UpdateSDFMapFromSubMap(self._grid_map_local)
+                # Clear submap for next submap
+                self._grid_map_local.Clear()
+
+            # Update the global sdf map and clear local map
+            self._grid_map_local.FuseSdf(
                 scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
                 self._min_range, self._max_range, self._scan_dir_vecs, semantic_labels=semantic_labels, use_plane=True,
                 use_semantics=FLAGS.use_semantics)
+
             logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
             t += self.kDeltaTime
-            # exit()
+
+        self._grid_map.UpdateSDFMapFromSubMap(self._grid_map_local)
         self.VisualizeOdomAndGt(display=False)
         self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
         self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)

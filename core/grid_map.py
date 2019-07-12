@@ -73,9 +73,56 @@ class GridMap(object):
     def sdf_map(self):
         return self._sdf_map
 
+    @sdf_map.setter
+    def sdf_map(self, val):
+        self._sdf_map = val
+
     @property
     def freq_map(self):
         return self._freq_map
+
+    @freq_map.setter
+    def freq_map(self, val):
+        self._freq_map = val
+
+    @property
+    def sdf_map_semantic(self):
+        return self._sdf_map_semantic
+
+    @sdf_map_semantic.setter
+    def sdf_map_semantic(self, val):
+        self._sdf_map_semantic = val
+
+    @property
+    def freq_map_semantic(self):
+        return self._freq_map_semantic
+
+    @freq_map_semantic.setter
+    def freq_map_semantic(self, val):
+        self._freq_map_semantic = val
+
+    def Clear(self):
+        self._sdf_map = np.full([self._size_y, self._size_x], self._truncation)
+        self._freq_map = np.zeros([self._size_y, self._size_x])
+        self._sdf_map_semantic = np.full([self._size_y, self._size_x, self._num_semantic_classes],
+                                         self._truncation)
+        self._freq_map_semantic = np.full(
+            [self._size_y, self._size_x, self._num_semantic_classes], 0)
+
+    def UpdateSDFMapFromSubMap(self, mp):
+        new_freq_map = mp.freq_map + self._freq_map
+        self._sdf_map = np.divide(np.multiply(self._sdf_map, self._freq_map) + \
+                                  np.multiply(mp.sdf_map, mp.freq_map), mp.freq_map + self._freq_map,
+                                           out=np.zeros_like(self._sdf_map),
+                                           where=new_freq_map!=0)
+        new_freq_map_semantic = mp.freq_map_semantic + self._freq_map_semantic
+        self._sdf_map_semantic = np.divide(np.multiply(self._sdf_map_semantic, self._freq_map_semantic) + \
+                                  np.multiply(mp.sdf_map_semantic, mp.freq_map_semantic), \
+                                           mp.freq_map_semantic + self._freq_map_semantic,
+                                           out=np.zeros_like(self._sdf_map_semantic),
+                                           where=new_freq_map_semantic!=0)
+        self._freq_map = new_freq_map
+        self._freq_map_semantic = new_freq_map_semantic
 
     def GetSdfValue(self, r, c):
         return self.InterpolateSdfValue(r, c)
