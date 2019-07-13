@@ -15,6 +15,7 @@ import utils
 import yaml
 
 from grid_map import GridMap
+from iterative_closest_point import ICP_matching
 from optimizer import SdfOptimizer
 
 FLAGS = gflags.FLAGS
@@ -185,10 +186,14 @@ class SLAM(object):
             self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True, init=True)
         # self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
         # self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
+        scan_local_xys_last = scan_local_xys
+        scan_valid_idxs_last = scan_valid_idxs
 
-        t = self.kDeltaTime
+        # t = self.kDeltaTime
+        t = 20
         prev_scan_data = scan_data
-        while (t < len(self._times) - self.kDeltaTime):
+        # while (t < len(self._times) - self.kDeltaTime):
+        while (t < 40):
             logging.info("t: %s", t)
             logging.info("Ground truth: %s, %s", self._gt_poses[t][0, 2], self._gt_poses[t][1, 2])
             # Get scan data in local xy coordinate
@@ -196,16 +201,26 @@ class SLAM(object):
             scan_valid_idxs, scan_local_xys = self._ProcessScanToLocalCoords(
                 scan_data)
             # Track from sdf map
-            curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            # curr_pose = self.Track(scan_valid_idxs, scan_local_xys)
+            print scan_local_xys, scan_local_xys_last
+            R, T = ICP_matching(scan_local_xys_last, scan_local_xys)
+            inter_transform = np.identity(3, dtype=np.float32)
+            inter_transform[:2, :2] = R
+            inter_transform[:2, 2] = T
+            curr_pose = np.dot(self._last_pose, inter_transform)
             self._est_poses.append(curr_pose)
             self._last_pose = curr_pose
+
             # Update the sdf map
-            self._grid_map.FuseSdf(
-                scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
-                self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
-            logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
+            # self._grid_map.FuseSdf(
+            #     scan_data, scan_valid_idxs, scan_local_xys, curr_pose, self._min_angle, self._max_angle, self._res_angle,
+            #     self._min_range, self._max_range, self._scan_dir_vecs, use_plane=True)
+            # logging.info("current pose %s, %s\n", curr_pose[0, 2], curr_pose[1, 2])
+
             t += self.kDeltaTime
-            # exit()
+            scan_local_xys_last = scan_local_xys
+            scan_valid_idxs_last = scan_valid_idxs
+
         self.VisualizeOdomAndGt(display=False)
         self._grid_map.VisualizeSdfMap(save_path=FLAGS.output_map_path)
         self._grid_map.VisualizeOccMap(save_path=FLAGS.output_occ_path)
